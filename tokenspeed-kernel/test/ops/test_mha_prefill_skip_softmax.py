@@ -21,9 +21,10 @@
 """Correctness test for skip-softmax attention in the Gluon MHA prefill kernel.
 
 Skips a K/V block's P@V matmul for query rows whose per-block max score falls
-below the running softmax max by more than a threshold. This is a
-compute-skip-only implementation: the V-block load itself is not skipped, so
-no memory-bandwidth savings are expected here, only matmul-skip savings.
+below the running softmax max by more than a threshold. This file covers the
+default ``defer_v_load=False`` path, which skips the matmul only: the V-block
+load is still issued, so only matmul-skip savings apply here. The V-load skip
+is covered by ``test_mha_prefill_defer_v_load.py``.
 
 Exposed via ``gluon_mha_prefill_gfx950(..., skip_softmax_threshold=X)``
 (``0.0`` disables skipping, exact dense attention).

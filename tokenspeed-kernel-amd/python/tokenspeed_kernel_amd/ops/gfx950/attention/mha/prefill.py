@@ -62,6 +62,7 @@ class AttentionConfig:
     NUM_XCDS: gl.constexpr
     NUM_BLOCKS: gl.constexpr
     IS_FP8: gl.constexpr
+    ENABLE_SKIP_SOFTMAX: gl.constexpr
     q_strides: InputStrides
     k_strides: InputStrides
     v_strides: InputStrides
@@ -91,6 +92,7 @@ class AttentionConfig:
         HAS_LSE,
         WINDOW_LEFT,
         IS_FP8,
+        ENABLE_SKIP_SOFTMAX,
         KV_DTYPE,
         q_strides,
         k_strides,
@@ -133,6 +135,7 @@ class AttentionConfig:
         self.NUM_XCDS = gl.constexpr(8)
         self.NUM_BLOCKS = gl.constexpr(512)
         self.IS_FP8 = gl.constexpr(IS_FP8)
+        self.ENABLE_SKIP_SOFTMAX = gl.constexpr(ENABLE_SKIP_SOFTMAX)
         self.q_strides = q_strides
         self.k_strides = k_strides
         self.v_strides = v_strides
@@ -167,6 +170,7 @@ class AttentionProgram:
     q_start: gl.tensor
     q_head: gl.tensor
     kv_head: gl.tensor
+    log2_threshold: gl.tensor
 
     @gluon.constexpr_function
     def __init__(
@@ -183,6 +187,7 @@ class AttentionProgram:
         q_start,
         q_head,
         kv_head,
+        log2_threshold,
     ):
         self.cfg = gl.constexpr(cfg)
         self.q_ptr = q_ptr
@@ -196,6 +201,7 @@ class AttentionProgram:
         self.q_start = q_start
         self.q_head = q_head
         self.kv_head = kv_head
+        self.log2_threshold = log2_threshold
 
     @gluon.jit
     def initialize_from_state(
@@ -210,6 +216,7 @@ class AttentionProgram:
         seq_len,
         query_block,
         q_head,
+        log2_threshold,
     ):
         kv_head = q_head // (cfg.N_HEADS // cfg.N_KV_HEADS)
         q_start = query_block * cfg.BLOCK_M
@@ -226,6 +233,7 @@ class AttentionProgram:
             q_start,
             q_head,
             kv_head,
+            log2_threshold,
         )
 
     @gluon.jit
@@ -367,6 +375,29 @@ class AttentionProgram:
 
         row_max = max(qk, 1)
         m_new = maximum(m_i, row_max)
+
+        # Skip softmax: a row's contribution from this KV block is negligible
+        # once its max score falls more than log2_threshold below the running
+        # max. Compares against m_i (the pre-block max), not m_new: against
+        # m_new the difference collapses to 0 on every row this block sets the
+        # max for, which skips unconditionally whenever log2_threshold > 0.
+        # Against m_i, a tile's first KV block gives (row_max - -inf) = +inf,
+        # which never satisfies the comparison, so a tile always accumulates
+        # at least one block. Should a row ever reach here with both m_i and
+        # row_max at -inf (the state HAS_INVALID below exists to absorb), the
+        # difference is NaN and the comparison is false, so the row is left
+        # for that guard rather than being skipped here.
+        # row_max/m_i are raw (pre-SM_SCALE) dot products, so the difference is
+        # scaled to match log2_threshold's units. Zeroing p on skipped rows
+        # keeps partially skipped blocks exact; all_skip reports the all-rows
+        # case so the caller can elide P@V entirely.
+        if cfg.ENABLE_SKIP_SOFTMAX:
+            skip = (row_max - m_i) * cfg.SM_SCALE < self.log2_threshold
+            all_skip = gl.sum(skip.to(gl.int32), axis=0) == cfg.BLOCK_M
+            m_new = gl.where(skip, m_i, m_new)
+        else:
+            all_skip = False
+
         m_new_scaled = m_new * cfg.SM_SCALE
         if HAS_INVALID:
             invalid = m_new == -float("inf")
@@ -374,6 +405,8 @@ class AttentionProgram:
 
         qk_shifted = qk * cfg.SM_SCALE - m_new_scaled[:, None]
         p = gl.exp2(qk_shifted)
+        if cfg.ENABLE_SKIP_SOFTMAX:
+            p = gl.where(skip[:, None], 0.0, p)
         m_diff = m_i * cfg.SM_SCALE - m_new_scaled
         if HAS_INVALID:
             m_diff = gl.where(invalid, 0.0, m_diff)
@@ -384,7 +417,7 @@ class AttentionProgram:
         acc = acc * alpha[:, None]
         p = p.to(self.q_ptr.dtype.element_ty)
         p = gl.convert_layout(p, cfg.p_layout)
-        return p, m_new, l_i, acc
+        return p, m_new, l_i, acc, all_skip
 
     @gluon.jit
     def apply_sinks(self, l_i, m_i, sink_log2):
@@ -570,6 +603,7 @@ class ProgramScheduler:
         sink_ptr,
         lse_ptr,
         cu_seqlens_ptr,
+        log2_threshold,
     ):
         cfg = self.cfg
         if self.swizzled_order:
@@ -607,6 +641,7 @@ class ProgramScheduler:
                 seq_len,
                 query_block,
                 self.q_head,
+                log2_threshold,
             )
             return program, valid & (program.q_start < program.seq_len)
 
@@ -630,6 +665,7 @@ class ProgramScheduler:
                 seq_len,
                 query_block,
                 q_head,
+                log2_threshold,
             )
             return program, program.q_start < program.seq_len
 
@@ -720,11 +756,12 @@ def process_attention_tile(
         async_copy.wait_group(1)
         k = program.shared_load_k(k_smem)
         qk = program.compute_qk(q, k)
-        p, m_i, l_i, acc = program.softmax(qk, m_i, l_i, acc)
+        p, m_i, l_i, acc, all_skip = program.softmax(qk, m_i, l_i, acc)
 
         async_copy.wait_group(0)
         v = program.shared_load_v(v_smem)
-        acc = program.compute_pv(p, v, acc)
+        if not (cfg.ENABLE_SKIP_SOFTMAX and all_skip):
+            acc = program.compute_pv(p, v, acc)
 
         k_offsets = program.update_k_offsets(k_offsets)
         v_offsets = program.update_v_offsets(v_offsets)
@@ -742,11 +779,12 @@ def process_attention_tile(
     k = program.shared_load_k(k_smem)
     qk = program.compute_qk(q, k)
     qk = gl.where(boundary_mask0, qk, -float("inf"))
-    p, m_i, l_i, acc = program.softmax(qk, m_i, l_i, acc)
+    p, m_i, l_i, acc, all_skip = program.softmax(qk, m_i, l_i, acc)
 
     async_copy.wait_group(0)
     v = program.shared_load_v(v_smem)
-    acc = program.compute_pv(p, v, acc)
+    if not (cfg.ENABLE_SKIP_SOFTMAX and all_skip):
+        acc = program.compute_pv(p, v, acc)
 
     boundary_start = boundary_start + cfg.BLOCK_N
     k_offsets, offs_n = program.make_k_offsets(boundary_start)
@@ -759,11 +797,12 @@ def process_attention_tile(
     k = program.shared_load_k(k_smem)
     qk = program.compute_qk(q, k)
     qk = gl.where(boundary_mask1, qk, -float("inf"))
-    p, m_i, l_i, acc = program.softmax(qk, m_i, l_i, acc)
+    p, m_i, l_i, acc, all_skip = program.softmax(qk, m_i, l_i, acc)
 
     async_copy.wait_group(0)
     v = program.shared_load_v(v_smem)
-    acc = program.compute_pv(p, v, acc)
+    if not (cfg.ENABLE_SKIP_SOFTMAX and all_skip):
+        acc = program.compute_pv(p, v, acc)
 
     l_i = program.apply_sinks(l_i, m_i, sink_log2)
     program.store_lse(l_i, m_i)
@@ -812,11 +851,12 @@ def process_sliding_attention_tile(
         k = program.shared_load_k(k_smem)
         qk = program.compute_qk(q, k)
         qk = gl.where(valid, qk, -float("inf"))
-        p, m_i, l_i, acc = program.softmax(qk, m_i, l_i, acc)
+        p, m_i, l_i, acc, all_skip = program.softmax(qk, m_i, l_i, acc)
 
         async_copy.wait_group(0)
         v = program.shared_load_v(v_smem)
-        acc = program.compute_pv(p, v, acc)
+        if not (cfg.ENABLE_SKIP_SOFTMAX and all_skip):
+            acc = program.compute_pv(p, v, acc)
         kv_start = kv_start + cfg.BLOCK_N
 
         mask_n = mask_n + cfg.BLOCK_N
@@ -867,6 +907,8 @@ def _mha_prefill(
     HAS_LSE: gl.constexpr,
     WINDOW_LEFT: gl.constexpr,
     IS_FP8: gl.constexpr,
+    ENABLE_SKIP_SOFTMAX: gl.constexpr,
+    log2_threshold,
 ):
     cfg = AttentionConfig(
         N_HEADS,
@@ -881,6 +923,7 @@ def _mha_prefill(
         HAS_LSE,
         -1,
         IS_FP8,
+        ENABLE_SKIP_SOFTMAX,
         k_ptr.dtype.element_ty,
         InputStrides(Q_STRIDE_T, Q_STRIDE_H, Q_STRIDE_D),
         InputStrides(K_STRIDE_T, K_STRIDE_H, K_STRIDE_D),
@@ -912,6 +955,7 @@ def _mha_prefill(
             sink_ptr,
             lse_ptr,
             cu_seqlens_ptr,
+            log2_threshold,
         )
         if active:
             if program.seq_len < cfg.BLOCK_N:
@@ -955,6 +999,8 @@ def _mha_prefill_sliding(
     HAS_LSE: gl.constexpr,
     WINDOW_LEFT: gl.constexpr,
     IS_FP8: gl.constexpr,
+    ENABLE_SKIP_SOFTMAX: gl.constexpr,
+    log2_threshold,
 ):
     cfg = AttentionConfig(
         N_HEADS,
@@ -969,6 +1015,7 @@ def _mha_prefill_sliding(
         HAS_LSE,
         WINDOW_LEFT,
         IS_FP8,
+        ENABLE_SKIP_SOFTMAX,
         k_ptr.dtype.element_ty,
         InputStrides(Q_STRIDE_T, Q_STRIDE_H, Q_STRIDE_D),
         InputStrides(K_STRIDE_T, K_STRIDE_H, K_STRIDE_D),
@@ -995,6 +1042,7 @@ def _mha_prefill_sliding(
             sink_ptr,
             lse_ptr,
             cu_seqlens_ptr,
+            log2_threshold,
         )
         if active:
             if program.seq_len < cfg.BLOCK_N:
@@ -1017,6 +1065,7 @@ class LaunchConfig(NamedTuple):
     max_seqlen: int
     window_left: int
     grid: tuple[int, ...]
+    log2_threshold: float
 
 
 def get_config(
@@ -1027,6 +1076,7 @@ def get_config(
     max_seqlen: int,
     window_left: int,
     softmax_scale: float | None,
+    skip_softmax_threshold: float = 0.0,
 ) -> LaunchConfig:
     n_heads = q.shape[1]
     n_kv_heads = k.shape[1]
@@ -1039,6 +1089,11 @@ def get_config(
     if softmax_scale is None:
         softmax_scale = 1.0 / math.sqrt(head_dim)
     sm_scale = softmax_scale * _INV_LN2_VALUE
+    log2_threshold = (
+        math.log(skip_softmax_threshold) * _INV_LN2_VALUE
+        if skip_softmax_threshold > 0.0
+        else 0.0
+    )
     return LaunchConfig(
         n_heads=n_heads,
         n_kv_heads=n_kv_heads,
@@ -1051,6 +1106,7 @@ def get_config(
         max_seqlen=max_seqlen,
         window_left=window_left,
         grid=(512,),
+        log2_threshold=log2_threshold,
     )
 
 
@@ -1066,7 +1122,8 @@ def gluon_mha_prefill_gfx950(
     sinks: torch.Tensor | None = None,
     return_lse: bool = False,
     softmax_scale: float | None = None,
-) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    skip_softmax_threshold: float = 0.0,
+) -> torch.Tensor | tuple[torch.Tensor, ...]:
     total_tokens, n_heads, _ = q.shape
     config = get_config(
         q=q,
@@ -1075,7 +1132,9 @@ def gluon_mha_prefill_gfx950(
         max_seqlen=max_seqlen,
         window_left=window_left,
         softmax_scale=softmax_scale,
+        skip_softmax_threshold=skip_softmax_threshold,
     )
+    enable_skip_softmax = skip_softmax_threshold > 0.0
     is_fp8 = q.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
     out_dtype = torch.bfloat16 if is_fp8 else q.dtype
     output = torch.empty(q.shape, device=q.device, dtype=out_dtype)
@@ -1120,6 +1179,8 @@ def gluon_mha_prefill_gfx950(
         has_lse,
         config.window_left,
         is_fp8,
+        enable_skip_softmax,
+        config.log2_threshold,
         num_warps=config.num_warps,
     )
     if return_lse:

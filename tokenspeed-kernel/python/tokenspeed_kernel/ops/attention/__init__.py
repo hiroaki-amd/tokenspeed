@@ -1693,6 +1693,7 @@ def mha_prefill(
     sinks: torch.Tensor | None = None,
     return_lse: bool = False,
     softmax_scale: float | None = None,
+    skip_softmax_threshold: float = 0.0,
     # dispatch options
     override: str | None = None,
     solution: str | None = None,
@@ -1715,6 +1716,27 @@ def mha_prefill(
             shape [total_q, num_q_heads].
         softmax_scale: Scale applied to QK logits before softmax. None uses the
             backend default 1/sqrt(head_dim).
+        skip_softmax_threshold: Ratio below which a K/V block's contribution
+            to a query row is treated as negligible and skipped. Given in
+            natural space, not log2: a block is skipped for a row when
+            exp(block_max_score - running_max) < skip_softmax_threshold, so
+            0.03 skips blocks worth under 3% of the row's running softmax
+            max. 0.0 disables skipping (default, exact dense attention).
+            Higher values skip more blocks at the cost of increased output
+            deviation; values above 1.0 also skip blocks scoring above the
+            running max, which is outside the method's intended regime.
+            Since the score distribution shifts with sequence length, a
+            given threshold does not map to a fixed sparsity across
+            seqlens and must be calibrated per workload. Only supported by
+            kernels that declare the "support_skip_softmax" trait; a
+            non-zero value routes selection exclusively to such kernels.
+            When combined with return_lse, the returned LSE is approximate
+            in the same way the output is: skipped blocks contribute
+            nothing to the softmax denominator, so the LSE is biased low.
+            Callers that combine partial attention results through the LSE
+            (chunked prefill, speculative decoding) should keep this in
+            mind, since both halves must be produced with the same
+            threshold for their LSEs to be comparable.
         override: Optional kernel override name.
         solution: Optional kernel solution to force through normal selection.
 
@@ -1730,6 +1752,8 @@ def mha_prefill(
         "support_sinks": sinks is not None,
         "return_lse": return_lse,
     }
+    if skip_softmax_threshold > 0.0:
+        traits["support_skip_softmax"] = True
     signature = _attention_format_signature(q=q, k=k, v=v)
     kernel = select_kernel(
         "attention",
@@ -1759,6 +1783,14 @@ def mha_prefill(
     )
 
     # Enter profiling scope
+    # Only forwarded when non-zero: a zero threshold does not request the
+    # "support_skip_softmax" trait, so selection can legitimately land on a
+    # kernel whose signature has no skip_softmax_threshold parameter.
+    extra_kwargs = (
+        {"skip_softmax_threshold": skip_softmax_threshold}
+        if skip_softmax_threshold > 0.0
+        else {}
+    )
     with kernel_scope(
         "attention",
         "mha_prefill",
@@ -1778,6 +1810,7 @@ def mha_prefill(
             sinks=sinks,
             return_lse=return_lse,
             softmax_scale=softmax_scale,
+            **extra_kwargs,
         )
 
 

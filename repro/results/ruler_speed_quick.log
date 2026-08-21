@@ -1,0 +1,17 @@
+Loading Qwen/Qwen3-8B...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+`torch_dtype` is deprecated! Use `dtype` instead!
+  niah_single_1: sparsity 44.8%, skip-only 1.064x, V-deferred 1.084x (33/36 layers >= 1.0x)
+  qa_1: sparsity 42.6%, skip-only 1.063x, V-deferred 1.092x (29/36 layers >= 1.0x)
+
+==============================================================================
+PER-LAYER SPEEDUP on real activations: ctx=8192, threshold=0.03
+==============================================================================
+Task                  sparsity   skip-only   V-deferred   >=1.0x
+----------------------------------------------------------------
+niah_single_1            44.8%      1.064x       1.084x   33/36 
+qa_1                     42.6%      1.063x       1.092x   29/36 
+----------------------------------------------------------------
+MEAN                     43.7%      1.063x       1.088x
+
+Results saved to results/ruler_speed.json

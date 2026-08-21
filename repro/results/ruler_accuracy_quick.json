@@ -1,0 +1,23 @@
+{
+  "context_length": 8192,
+  "num_samples": 6,
+  "num_tasks": 2,
+  "threshold": 0.03,
+  "target_sparsity": null,
+  "dense": {
+    "aggregate": 66.66666666666666,
+    "per_task": {
+      "niah_single_1": 100.0,
+      "qa_1": 33.33333333333333
+    },
+    "time_s": 17.472211360931396
+  },
+  "blasst": {
+    "aggregate": 66.66666666666666,
+    "per_task": {
+      "niah_single_1": 100.0,
+      "qa_1": 33.33333333333333
+    },
+    "time_s": 7.395776033401489
+  }
+}

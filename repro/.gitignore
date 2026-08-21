@@ -1,0 +1,18 @@
+# Container scratch: HOME, Triton/Inductor caches, generated /etc/passwd.
+.home/
+__pycache__/
+*.pyc
+
+# Your own runs land in results/ and are not tracked. The committed exceptions
+# below are our reference logs, so that RESULTS.md can be checked against the
+# raw output it was written from rather than taken on trust.
+results/*
+!results/README.md
+!results/sparsity_sweep.log
+!results/sparsity_sweep.json
+!results/ruler_speed_ctx32768.log
+!results/ruler_speed_ctx32768.json
+!results/ruler_speed_quick.log
+!results/ruler_speed_quick.json
+!results/ruler_accuracy_quick.log
+!results/ruler_accuracy_quick.json

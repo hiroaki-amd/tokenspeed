@@ -32,24 +32,24 @@ does not touch, and per-layer sparsity at a fixed threshold varies enormously,
 so an aggregate hides exactly the structure that determines whether the kernel
 wins.
 
-Three configurations are timed per layer:
+Two configurations are timed per layer:
 
-  dense       ``skip_softmax_threshold=0.0``, the stock kernel, which is also
-              the static schedule. This is the baseline a user has today.
-  skip only   threshold set, ``defer_v_load=False``.
-  V-deferred  threshold set, ``defer_v_load=True``.
-
-In the merged API a nonzero threshold also switches on the dynamic work
-counter, so neither of the latter two isolates the scheduler. That is by
-design: the counter costs about 2% when there is no sparsity to earn it back,
-so it is not something a caller should be able to enable on its own.
+  dense    ``skip_softmax_threshold=0.0``, the stock kernel, which is also
+           the static schedule. This is the baseline a user has today.
+  blasst   threshold set, ``defer_v_load=True``. In the merged API a nonzero
+           threshold also switches on the dynamic work counter, so this one
+           number is the shipped three-piece configuration together, not
+           skip-softmax in isolation: a caller cannot opt into the threshold
+           without also getting ``defer_v_load``'s fixed cost and the
+           counter's rebalancing, so there is no API-level way to isolate
+           either piece and report it separately.
 
 A task's speedup is its layer times summed and then divided, so each layer is
 weighted by how long it takes. The reported mean is the mean over tasks of
 that. Averaging the per-layer ratios instead gives the cheap early layers, which
 have almost no sparsity to exploit, the same weight as the expensive ones, and
-reads about 0.01x higher. Both are in the JSON, as ``v_deferred_speedup`` and
-``mean_v_deferred_speedup``.
+reads about 0.01x higher. Both are in the JSON, as ``speedup`` and
+``mean_speedup``.
 
 One caveat that is easy to get wrong when reading these numbers. Activations
 are captured under *dense* attention and then replayed, so the sparsity
@@ -170,7 +170,8 @@ def benchmark_fn(fn, warmup, repeat):
 
 
 def bench_one_layer(qkv, threshold, warmup, repeat, measure_sparsity=True):
-    """Time dense / skip-only / V-deferred for one layer, and measure sparsity.
+    """Time dense / blasst (shipped configuration) for one layer, and measure
+    sparsity.
 
     Args:
         qkv: dict with captured ``Q``/``K``/``V`` for one layer, packed
@@ -183,8 +184,8 @@ def bench_one_layer(qkv, threshold, warmup, repeat, measure_sparsity=True):
             be turned off when only the timings are wanted.
 
     Returns:
-        A dict with ``sparsity_pct`` (None when not measured), and the dense,
-        skip-only and V-deferred milliseconds with their speedups over dense.
+        A dict with ``sparsity_pct`` (None when not measured), and the dense
+        and blasst milliseconds with the speedup over dense.
     """
     from tokenspeed_kernel_amd.ops.gfx950.attention.mha.prefill import (
         gluon_mha_prefill_gfx950,
@@ -214,16 +215,13 @@ def bench_one_layer(qkv, threshold, warmup, repeat, measure_sparsity=True):
         sparsity = None
 
     dense_ms = benchmark_fn(lambda: call(0.0, False), warmup, repeat)
-    skip_ms = benchmark_fn(lambda: call(threshold, False), warmup, repeat)
-    defer_ms = benchmark_fn(lambda: call(threshold, True), warmup, repeat)
+    blasst_ms = benchmark_fn(lambda: call(threshold, True), warmup, repeat)
 
     return {
         "sparsity_pct": sparsity,
         "dense_ms": dense_ms,
-        "skip_only_ms": skip_ms,
-        "skip_only_speedup": dense_ms / skip_ms if skip_ms else 0.0,
-        "v_deferred_ms": defer_ms,
-        "v_deferred_speedup": dense_ms / defer_ms if defer_ms else 0.0,
+        "blasst_ms": blasst_ms,
+        "speedup": dense_ms / blasst_ms if blasst_ms else 0.0,
     }
 
 
@@ -279,12 +277,9 @@ def main():
         # summed figure is the headline; the ratio mean is kept because the
         # per-layer distribution is the thing the scheduling change is about.
         tot_dense = sum(r["dense_ms"] for r in per_layer.values())
-        tot_skip = sum(r["skip_only_ms"] for r in per_layer.values())
-        tot_defer = sum(r["v_deferred_ms"] for r in per_layer.values())
-        skip_speedup = tot_dense / tot_skip if tot_skip else 0.0
-        defer_speedup = tot_dense / tot_defer if tot_defer else 0.0
-        mean_skip = sum(r["skip_only_speedup"] for r in per_layer.values()) / n
-        mean_defer = sum(r["v_deferred_speedup"] for r in per_layer.values()) / n
+        tot_blasst = sum(r["blasst_ms"] for r in per_layer.values())
+        speedup = tot_dense / tot_blasst if tot_blasst else 0.0
+        mean_speedup = sum(r["speedup"] for r in per_layer.values()) / n
         sps = [
             r["sparsity_pct"]
             for r in per_layer.values()
@@ -294,23 +289,19 @@ def main():
         results[task] = {
             "mean_sparsity_pct": mean_sp,
             "total_dense_ms": tot_dense,
-            "total_skip_only_ms": tot_skip,
-            "total_v_deferred_ms": tot_defer,
-            "skip_only_speedup": skip_speedup,
-            "v_deferred_speedup": defer_speedup,
-            "mean_skip_only_speedup": mean_skip,
-            "mean_v_deferred_speedup": mean_defer,
-            "layers_above_1x_v_deferred": sum(
-                1 for r in per_layer.values() if r["v_deferred_speedup"] >= 1.0
+            "total_blasst_ms": tot_blasst,
+            "speedup": speedup,
+            "mean_speedup": mean_speedup,
+            "layers_above_1x": sum(
+                1 for r in per_layer.values() if r["speedup"] >= 1.0
             ),
             "num_layers": n,
             "per_layer": {str(li): r for li, r in per_layer.items()},
         }
         sp_txt = f"{mean_sp:.1f}%" if mean_sp is not None else "n/a"
         print(
-            f"  {task}: sparsity {sp_txt}, skip-only {skip_speedup:.3f}x, "
-            f"V-deferred {defer_speedup:.3f}x "
-            f"({results[task]['layers_above_1x_v_deferred']}/{n} layers >= 1.0x)",
+            f"  {task}: sparsity {sp_txt}, speedup {speedup:.3f}x "
+            f"({results[task]['layers_above_1x']}/{n} layers >= 1.0x)",
             flush=True,
         )
 
@@ -320,9 +311,7 @@ def main():
         f"threshold={args.threshold}"
     )
     print(f"{'='*78}")
-    hdr = (
-        f"{'Task':<20}{'sparsity':>10}{'skip-only':>12}{'V-deferred':>13}{'>=1.0x':>9}"
-    )
+    hdr = f"{'Task':<20}{'sparsity':>10}{'speedup':>11}{'>=1.0x':>9}"
     print(hdr)
     print("-" * len(hdr))
     for task in tasks:
@@ -330,9 +319,8 @@ def main():
         sp = r["mean_sparsity_pct"]
         sp_txt = f"{sp:.1f}%" if sp is not None else "n/a"
         print(
-            f"{task:<20}{sp_txt:>10}{r['skip_only_speedup']:>11.3f}x"
-            f"{r['v_deferred_speedup']:>12.3f}x"
-            f"{r['layers_above_1x_v_deferred']:>5}/{r['num_layers']:<3}"
+            f"{task:<20}{sp_txt:>10}{r['speedup']:>10.3f}x"
+            f"{r['layers_above_1x']:>5}/{r['num_layers']:<3}"
         )
     print("-" * len(hdr))
     sps = [
@@ -341,9 +329,8 @@ def main():
         if results[t]["mean_sparsity_pct"] is not None
     ]
     m_sp = f"{sum(sps) / len(sps):.1f}%" if sps else "n/a"
-    m_sk = sum(results[t]["skip_only_speedup"] for t in tasks) / len(tasks)
-    m_df = sum(results[t]["v_deferred_speedup"] for t in tasks) / len(tasks)
-    print(f"{'MEAN':<20}{m_sp:>10}{m_sk:>11.3f}x{m_df:>12.3f}x")
+    m_sd = sum(results[t]["speedup"] for t in tasks) / len(tasks)
+    print(f"{'MEAN':<20}{m_sp:>10}{m_sd:>10.3f}x")
     print(
         "\nSpeedups are per task: layer times summed, then divided. MEAN is the "
         "mean over tasks of that.\nAveraging the per-layer ratios instead reads "

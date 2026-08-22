@@ -4,19 +4,19 @@ PER-LAYER SPEEDUP on real activations: ctx=32768, threshold=0.03
 ==============================================================================
 Task                  sparsity   skip-only   V-deferred   >=1.0x
 ----------------------------------------------------------------
-cwe                        n/a      0.990x       1.092x   31/36 
-fwe                        n/a      1.074x       1.207x   35/36 
-niah_multikey_1            n/a      1.021x       1.153x   32/36 
-niah_multikey_2            n/a      0.982x       1.062x   29/36 
-niah_multikey_3            n/a      0.986x       1.096x   29/36 
-niah_multiquery            n/a      1.023x       1.156x   32/36 
-niah_multivalue            n/a      0.989x       1.117x   31/36 
-niah_single_1              n/a      0.996x       1.132x   33/36 
-niah_single_2              n/a      0.989x       1.117x   31/36 
-niah_single_3              n/a      0.989x       1.116x   31/36 
-qa_1                       n/a      1.000x       1.145x   31/36 
-qa_2                       n/a      1.085x       1.250x   34/36 
-vt                         n/a      0.987x       1.113x   32/36 
+cwe                        n/a      0.990x       1.092x   31/36
+fwe                        n/a      1.074x       1.207x   35/36
+niah_multikey_1            n/a      1.021x       1.153x   32/36
+niah_multikey_2            n/a      0.982x       1.062x   29/36
+niah_multikey_3            n/a      0.986x       1.096x   29/36
+niah_multiquery            n/a      1.023x       1.156x   32/36
+niah_multivalue            n/a      0.989x       1.117x   31/36
+niah_single_1              n/a      0.996x       1.132x   33/36
+niah_single_2              n/a      0.989x       1.117x   31/36
+niah_single_3              n/a      0.989x       1.116x   31/36
+qa_1                       n/a      1.000x       1.145x   31/36
+qa_2                       n/a      1.085x       1.250x   34/36
+vt                         n/a      0.987x       1.113x   32/36
 ----------------------------------------------------------------
 MEAN                       n/a      1.009x       1.135x
 

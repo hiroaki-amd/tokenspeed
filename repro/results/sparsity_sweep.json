@@ -7,22 +7,22 @@
       "n_kv_heads": 4,
       "gqa_ratio": 16,
       "seqlen": 16384,
-      "threshold": 0.9,
-      "sparsity_pct": 13.252577670784884,
-      "dense_ms": 8.443939685821533,
-      "blasst_ms": 8.629941940307617,
-      "speedup": 0.978446870700563
+      "threshold": 1e-09,
+      "sparsity_pct": 0.0,
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 10.027050971984863,
+      "speedup": 0.8420363082995495
     },
     {
       "n_q_heads": 64,
       "n_kv_heads": 4,
       "gqa_ratio": 16,
       "seqlen": 16384,
-      "threshold": 1.1,
-      "sparsity_pct": 29.102887294089147,
-      "dense_ms": 8.443939685821533,
-      "blasst_ms": 8.069348335266113,
-      "speedup": 1.0464215119972344
+      "threshold": 1.0,
+      "sparsity_pct": 21.569729590600776,
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 8.30930471420288,
+      "speedup": 1.0161067952111444
     },
     {
       "n_q_heads": 64,
@@ -31,9 +31,9 @@
       "seqlen": 16384,
       "threshold": 1.3,
       "sparsity_pct": 39.133944252664726,
-      "dense_ms": 8.443939685821533,
-      "blasst_ms": 7.770276069641113,
-      "speedup": 1.0866975137231558
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 7.7678680419921875,
+      "speedup": 1.0869315670578992
     },
     {
       "n_q_heads": 64,
@@ -42,20 +42,64 @@
       "seqlen": 16384,
       "threshold": 1.7,
       "sparsity_pct": 49.981547510901166,
-      "dense_ms": 8.443939685821533,
-      "blasst_ms": 7.4730634689331055,
-      "speedup": 1.1299167631754419
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 7.473814487457275,
+      "speedup": 1.1296963548869206
     },
     {
       "n_q_heads": 64,
       "n_kv_heads": 4,
       "gqa_ratio": 16,
       "seqlen": 16384,
-      "threshold": 2.0,
-      "sparsity_pct": 54.696489674176355,
-      "dense_ms": 8.443939685821533,
-      "blasst_ms": 7.351899147033691,
-      "speedup": 1.1485385635667287
+      "threshold": 4.0,
+      "sparsity_pct": 64.61607467296511,
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 7.086992263793945,
+      "speedup": 1.1913574432296048
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 16384,
+      "threshold": 6.0,
+      "sparsity_pct": 78.1879277192345,
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 6.753528118133545,
+      "speedup": 1.2501822508018152
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 16384,
+      "threshold": 8.0,
+      "sparsity_pct": 88.57497577519379,
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 6.572103500366211,
+      "speedup": 1.2846938553403906
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 16384,
+      "threshold": 10.0,
+      "sparsity_pct": 93.87803188590117,
+      "dense_ms": 8.443140983581543,
+      "blasst_ms": 6.517946720123291,
+      "speedup": 1.295368211205911
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 65536,
+      "threshold": 1e-09,
+      "sparsity_pct": 0.0,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 160.7757806777954,
+      "speedup": 0.8511568676154921
     },
     {
       "n_q_heads": 64,
@@ -63,10 +107,10 @@
       "gqa_ratio": 16,
       "seqlen": 65536,
       "threshold": 0.7,
-      "sparsity_pct": null,
-      "dense_ms": 136.76451444625854,
-      "blasst_ms": 129.924476146698,
-      "speedup": 1.0526462642176633
+      "sparsity_pct": 20.87967484085648,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 129.98902797698975,
+      "speedup": 1.0527458509372933
     },
     {
       "n_q_heads": 64,
@@ -74,10 +118,10 @@
       "gqa_ratio": 16,
       "seqlen": 65536,
       "threshold": 0.8,
-      "sparsity_pct": null,
-      "dense_ms": 136.76451444625854,
-      "blasst_ms": 122.8699803352356,
-      "speedup": 1.1130832288986572
+      "sparsity_pct": 33.94745051512244,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 122.97447919845581,
+      "speedup": 1.1127951975247403
     },
     {
       "n_q_heads": 64,
@@ -85,54 +129,76 @@
       "gqa_ratio": 16,
       "seqlen": 65536,
       "threshold": 0.9,
-      "sparsity_pct": null,
-      "dense_ms": 136.76451444625854,
-      "blasst_ms": 117.04696416854858,
-      "speedup": 1.1684584509967857
+      "sparsity_pct": 46.073565566748904,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 117.1852707862854,
+      "speedup": 1.1677697116023833
     },
     {
       "n_q_heads": 64,
       "n_kv_heads": 4,
       "gqa_ratio": 16,
       "seqlen": 65536,
+      "threshold": 1.1,
+      "sparsity_pct": 63.566080729166664,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 110.11101007461548,
+      "speedup": 1.2427949737035013
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 65536,
+      "threshold": 2.0,
+      "sparsity_pct": 80.96332512868543,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 104.83921766281128,
+      "speedup": 1.3052883541183626
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 65536,
+      "threshold": 6.0,
+      "sparsity_pct": 89.40107260066398,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 101.84401273727417,
+      "speedup": 1.3436765322981357
+    },
+    {
+      "n_q_heads": 64,
+      "n_kv_heads": 4,
+      "gqa_ratio": 16,
+      "seqlen": 65536,
+      "threshold": 10.0,
+      "sparsity_pct": 96.09110871253655,
+      "dense_ms": 136.8454098701477,
+      "blasst_ms": 101.0654091835022,
+      "speedup": 1.3540281583551554
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 16384,
+      "threshold": 1e-09,
+      "sparsity_pct": 0.0,
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 5.126535892486572,
+      "speedup": 0.8293108860700624
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 16384,
       "threshold": 1.0,
-      "sparsity_pct": null,
-      "dense_ms": 136.76451444625854,
-      "blasst_ms": 112.70449161529541,
-      "speedup": 1.2134788284489089
-    },
-    {
-      "n_q_heads": 64,
-      "n_kv_heads": 4,
-      "gqa_ratio": 16,
-      "seqlen": 65536,
-      "threshold": 1.1,
-      "sparsity_pct": null,
-      "dense_ms": 136.76451444625854,
-      "blasst_ms": 110.06417274475098,
-      "speedup": 1.2425888555345628
-    },
-    {
-      "n_q_heads": 32,
-      "n_kv_heads": 8,
-      "gqa_ratio": 4,
-      "seqlen": 16384,
-      "threshold": 0.9,
-      "sparsity_pct": 13.213496245155039,
-      "dense_ms": 4.222142696380615,
-      "blasst_ms": 4.449725151062012,
-      "speedup": 0.9488547164251079
-    },
-    {
-      "n_q_heads": 32,
-      "n_kv_heads": 8,
-      "gqa_ratio": 4,
-      "seqlen": 16384,
-      "threshold": 1.1,
-      "sparsity_pct": 29.089260840600776,
-      "dense_ms": 4.222142696380615,
-      "blasst_ms": 4.146063327789307,
-      "speedup": 1.0183497845007288
+      "sparsity_pct": 21.502732860949614,
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 4.262590408325195,
+      "speedup": 0.9973963285715883
     },
     {
       "n_q_heads": 32,
@@ -141,9 +207,9 @@
       "seqlen": 16384,
       "threshold": 1.3,
       "sparsity_pct": 39.14312318313954,
-      "dense_ms": 4.222142696380615,
-      "blasst_ms": 3.9884686470031734,
-      "speedup": 1.0585874103719026
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 3.975009918212891,
+      "speedup": 1.069555073054869
     },
     {
       "n_q_heads": 32,
@@ -152,20 +218,64 @@
       "seqlen": 16384,
       "threshold": 1.7,
       "sparsity_pct": 50.17354802567829,
-      "dense_ms": 4.222142696380615,
-      "blasst_ms": 3.847014904022217,
-      "speedup": 1.0975113956450198
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 3.8305044174194336,
+      "speedup": 1.109903960463828
     },
     {
       "n_q_heads": 32,
       "n_kv_heads": 8,
       "gqa_ratio": 4,
       "seqlen": 16384,
-      "threshold": 2.0,
-      "sparsity_pct": 54.87845960513566,
-      "dense_ms": 4.222142696380615,
-      "blasst_ms": 3.78953218460083,
-      "speedup": 1.1141593449285756
+      "threshold": 4.0,
+      "sparsity_pct": 64.58333333333333,
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 3.647005558013916,
+      "speedup": 1.1657487096848003
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 16384,
+      "threshold": 6.0,
+      "sparsity_pct": 77.89391805959302,
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 3.4824132919311523,
+      "speedup": 1.2208464840514024
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 16384,
+      "threshold": 8.0,
+      "sparsity_pct": 88.42905916908914,
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 3.409242630004883,
+      "speedup": 1.2470488272235198
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 16384,
+      "threshold": 10.0,
+      "sparsity_pct": 93.82494549418605,
+      "dense_ms": 4.251492023468018,
+      "blasst_ms": 3.3843040466308594,
+      "speedup": 1.2562381999041903
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 65536,
+      "threshold": 1e-09,
+      "sparsity_pct": 0.0,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 80.01673221588135,
+      "speedup": 0.871328860940156
     },
     {
       "n_q_heads": 32,
@@ -173,10 +283,10 @@
       "gqa_ratio": 4,
       "seqlen": 65536,
       "threshold": 0.7,
-      "sparsity_pct": null,
-      "dense_ms": 69.47052478790283,
-      "blasst_ms": 65.30276536941528,
-      "speedup": 1.0638220968884042
+      "sparsity_pct": 20.804933544255604,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 65.3610110282898,
+      "speedup": 1.0667045543044082
     },
     {
       "n_q_heads": 32,
@@ -184,10 +294,10 @@
       "gqa_ratio": 4,
       "seqlen": 65536,
       "threshold": 0.8,
-      "sparsity_pct": null,
-      "dense_ms": 69.47052478790283,
-      "blasst_ms": 62.01968193054199,
-      "speedup": 1.120136747326523
+      "sparsity_pct": 33.888741357517056,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 62.06690073013306,
+      "speedup": 1.1233183438780658
     },
     {
       "n_q_heads": 32,
@@ -195,21 +305,10 @@
       "gqa_ratio": 4,
       "seqlen": 65536,
       "threshold": 0.9,
-      "sparsity_pct": null,
-      "dense_ms": 69.47052478790283,
-      "blasst_ms": 59.36532020568848,
-      "speedup": 1.1702206700343218
-    },
-    {
-      "n_q_heads": 32,
-      "n_kv_heads": 8,
-      "gqa_ratio": 4,
-      "seqlen": 65536,
-      "threshold": 1.0,
-      "sparsity_pct": null,
-      "dense_ms": 69.47052478790283,
-      "blasst_ms": 57.32240676879883,
-      "speedup": 1.2119261682103053
+      "sparsity_pct": 46.05256019279971,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 59.41433906555176,
+      "speedup": 1.173469051989191
     },
     {
       "n_q_heads": 32,
@@ -217,10 +316,43 @@
       "gqa_ratio": 4,
       "seqlen": 65536,
       "threshold": 1.1,
-      "sparsity_pct": null,
-      "dense_ms": 69.47052478790283,
-      "blasst_ms": 56.00614547729492,
-      "speedup": 1.2404089621926653
+      "sparsity_pct": 63.596693488821884,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 56.01236820220947,
+      "speedup": 1.2447409451805176
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 65536,
+      "threshold": 2.0,
+      "sparsity_pct": 81.00399143746954,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 53.08585166931152,
+      "speedup": 1.313361017020707
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 65536,
+      "threshold": 6.0,
+      "sparsity_pct": 89.32949608994274,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 51.5873908996582,
+      "speedup": 1.3515102609750191
+    },
+    {
+      "n_q_heads": 32,
+      "n_kv_heads": 8,
+      "gqa_ratio": 4,
+      "seqlen": 65536,
+      "threshold": 10.0,
+      "sparsity_pct": 96.02107890168129,
+      "dense_ms": 69.72088813781738,
+      "blasst_ms": 50.675761699676514,
+      "speedup": 1.3758231904043081
     }
   ]
 }

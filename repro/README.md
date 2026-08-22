@@ -94,6 +94,13 @@ output instead: no rows skipped implies bit-identical output, any rows skipped
 implies changed output, sparsity monotonic in the threshold, and `defer_v_load`
 never changing the result. 30 checks across 5 shapes and 6 thresholds.
 
+The counter is still `O(seqlen^2)`, but it batches the head and query-tile axes
+into GPU ops rather than looping over them in Python (only the KV-block axis is
+a Python loop, since that is where the running-max recurrence lives). That
+brings a 16k count down to well under a second and a 64k count to a few
+seconds, so `scripts/sparsity_sweep.py` computes it unconditionally at every
+length it sweeps, including 64k.
+
 Two caveats worth reading before quoting a sparsity figure.
 
 **Sparsity is not the same as "the output changed."** A block counts as sparsity

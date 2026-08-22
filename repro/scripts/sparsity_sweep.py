@@ -42,9 +42,15 @@ need atomics on the hot path), so it is recomputed independently in PyTorch by
 instrumented build of the kernel. A number that can only be produced by the
 thing under test cannot corroborate it.
 
-The reference counter is O(seqlen^2) in Python and is slow at 64k. It is
-skipped by default above ``--max-sparsity-seqlen``; pass ``--sparsity-all`` to
-compute it everywhere and expect the sweep to take considerably longer.
+The reference counter is still O(seqlen^2), but ``sparsity_reference`` batches
+the head and query-tile axes into GPU ops instead of looping over them in
+Python, so it is cheap enough (a couple of seconds per threshold at 64k) to
+compute unconditionally at every sequence length swept here.
+
+Thresholds are chosen to span roughly 0% to 95% sparsity at each length, the
+same range as Table 5 of the BLASST paper, rather than to cluster around 50%:
+comparing against that table needs the same coverage of the curve, not just
+its midpoint.
 """
 
 from __future__ import annotations
@@ -55,7 +61,6 @@ import os
 import time
 
 import torch
-
 from sparsity_reference import count_block_sparsity
 from tokenspeed_kernel_amd.ops.gfx950.attention.mha.prefill import (
     gluon_mha_prefill_gfx950,
@@ -69,12 +74,13 @@ SHAPES = [
     (32, 8, "Qwen3-8B shape"),
 ]
 
-# Thresholds chosen to bracket ~50% sparsity at each length. Sparsity at a
-# fixed threshold shifts with sequence length, which is exactly why the
-# threshold has to be calibrated per workload.
+# Thresholds chosen to span ~0% to ~95% sparsity at each length, matching the
+# range of BLASST paper Table 5. Sparsity at a fixed threshold shifts with
+# sequence length, which is exactly why the values differ between the two
+# rows below.
 SWEEP = {
-    16384: [0.9, 1.1, 1.3, 1.7, 2.0],
-    65536: [0.7, 0.8, 0.9, 1.0, 1.1],
+    16384: [1e-9, 1.0, 1.3, 1.7, 4.0, 6.0, 8.0, 10.0],
+    65536: [1e-9, 0.7, 0.8, 0.9, 1.1, 2.0, 6.0, 10.0],
 }
 
 
@@ -104,17 +110,6 @@ def main():
     p.add_argument("--warmup", type=int, default=5)
     p.add_argument("--repeat", type=int, default=20)
     p.add_argument("--device", default="cuda")
-    p.add_argument(
-        "--max-sparsity-seqlen",
-        type=int,
-        default=16384,
-        help="Skip the O(n^2) reference sparsity count above this length.",
-    )
-    p.add_argument(
-        "--sparsity-all",
-        action="store_true",
-        help="Count sparsity at every length, however slow.",
-    )
     p.add_argument("--output-file", default=None)
     args = p.parse_args()
 
@@ -124,8 +119,10 @@ def main():
 
     results = []
     for n_q, n_kv, note in SHAPES:
-        print(f"=== {n_q} Q-heads / {n_kv} KV-heads, GQA ratio {n_q // n_kv} "
-              f"({note}) ===")
+        print(
+            f"=== {n_q} Q-heads / {n_kv} KV-heads, GQA ratio {n_q // n_kv} "
+            f"({note}) ==="
+        )
         for seqlen, thresholds in SWEEP.items():
             q, k, v = make_qkv(seqlen, n_q, n_kv, args.device)
             cu = torch.tensor([0, seqlen], device=args.device, dtype=torch.int32)
@@ -145,40 +142,39 @@ def main():
             # skip_softmax_threshold=0.0 is the stock dense kernel: no skip
             # check, no deferred V load, and the static scheduler. That is the
             # right baseline, because it is what a user gets today.
-            dense_ms = benchmark_fn(
-                lambda: call(0.0, False), args.warmup, args.repeat
-            )
+            dense_ms = benchmark_fn(lambda: call(0.0, False), args.warmup, args.repeat)
 
-            want_sparsity = args.sparsity_all or seqlen <= args.max_sparsity_seqlen
-            print(f"\n  seqlen={seqlen} ({seqlen // 1024}k)   "
-                  f"dense {dense_ms:.3f} ms")
-            header = f"  {'threshold':>10} {'sparsity':>10} {'blasst ms':>11} {'speedup':>9}"
+            print(
+                f"\n  seqlen={seqlen} ({seqlen // 1024}k)   " f"dense {dense_ms:.3f} ms"
+            )
+            header = (
+                f"  {'threshold':>10} {'sparsity':>10} {'blasst ms':>11} {'speedup':>9}"
+            )
             print(header)
 
             for threshold in thresholds:
                 ms = benchmark_fn(
                     lambda: call(threshold, True), args.warmup, args.repeat
                 )
-                if want_sparsity:
-                    total, skipped = count_block_sparsity(q, k, threshold)
-                    pct = 100.0 * skipped / max(total, 1)
-                    sp = f"{pct:.2f}%"
-                else:
-                    pct = None
-                    sp = "-"
-                print(f"  {threshold:>10} {sp:>10} {ms:>11.3f} "
-                      f"{dense_ms / ms:>8.3f}x")
-                results.append({
-                    "n_q_heads": n_q,
-                    "n_kv_heads": n_kv,
-                    "gqa_ratio": n_q // n_kv,
-                    "seqlen": seqlen,
-                    "threshold": threshold,
-                    "sparsity_pct": pct,
-                    "dense_ms": dense_ms,
-                    "blasst_ms": ms,
-                    "speedup": dense_ms / ms,
-                })
+                total, skipped = count_block_sparsity(q, k, threshold)
+                pct = 100.0 * skipped / max(total, 1)
+                sp = f"{pct:.2f}%"
+                print(
+                    f"  {threshold:>10} {sp:>10} {ms:>11.3f} " f"{dense_ms / ms:>8.3f}x"
+                )
+                results.append(
+                    {
+                        "n_q_heads": n_q,
+                        "n_kv_heads": n_kv,
+                        "gqa_ratio": n_q // n_kv,
+                        "seqlen": seqlen,
+                        "threshold": threshold,
+                        "sparsity_pct": pct,
+                        "dense_ms": dense_ms,
+                        "blasst_ms": ms,
+                        "speedup": dense_ms / ms,
+                    }
+                )
 
             del q, k, v
             torch.cuda.empty_cache()

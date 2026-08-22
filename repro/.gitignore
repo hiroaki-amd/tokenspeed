@@ -16,3 +16,5 @@ results/*
 !results/ruler_speed_quick.json
 !results/ruler_accuracy_quick.log
 !results/ruler_accuracy_quick.json
+!results/ruler_accuracy.log
+!results/ruler_accuracy.json

@@ -99,7 +99,8 @@ into GPU ops rather than looping over them in Python (only the KV-block axis is
 a Python loop, since that is where the running-max recurrence lives). That
 brings a 16k count down to well under a second and a 64k count to a few
 seconds, so `scripts/sparsity_sweep.py` computes it unconditionally at every
-length it sweeps, including 64k.
+length it sweeps, including 64k, and `scripts/ruler_speed.py` no longer needs
+`--no-sparsity` at ctx 32768 either.
 
 Two caveats worth reading before quoting a sparsity figure.
 

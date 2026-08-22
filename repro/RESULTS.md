@@ -94,7 +94,7 @@ Full run, all 13 tasks, ctx=32768, threshold 0.03, mean over tasks:
   dense                                         1.000x
   skip-softmax only                             0.980x
   + defer_v_load                                0.942x
-  + dynamic work counter                        1.135x
+  + dynamic work counter                        1.133x
 ```
 
 The middle two rows are the reason the work counter ships with the feature and
@@ -104,51 +104,54 @@ the layer is least sparse. Those two rows predate the counter and cannot be
 reproduced from this bundle, because a nonzero threshold now switches the
 counter on unconditionally. They are quoted from the earlier measurement.
 
-The last row is what this bundle produces. Per task, against the same
-measurement taken outside the container:
+The last row is what this bundle produces, and is also what `ruler_speed.py`
+now reports directly as its single `speedup` column (commit `2dfd88e4` dropped
+the separate skip-only timing, since it was never actually isolating the
+scheduler from the threshold check -- see the note above). Per task, against
+the same measurement taken outside the container:
 
 ```
 Task                  bundle   earlier     diff
-cwe                   1.092x    1.090x   +0.002
-fwe                   1.207x    1.202x   +0.005
-niah_multikey_1       1.153x    1.151x   +0.002
-niah_multikey_2       1.062x    1.060x   +0.003
-niah_multikey_3       1.096x    1.094x   +0.002
-niah_multiquery       1.156x    1.153x   +0.003
-niah_multivalue       1.117x    1.114x   +0.002
-niah_single_1         1.132x    1.131x   +0.001
-niah_single_2         1.117x    1.116x   +0.001
-niah_single_3         1.116x    1.115x   +0.002
-qa_1                  1.145x    1.143x   +0.001
-qa_2                  1.250x    1.246x   +0.003
-vt                    1.113x    1.113x   +0.000
-MEAN                  1.135x    1.133x   +0.002
+cwe                   1.090x    1.090x   +0.000
+fwe                   1.202x    1.202x   +0.000
+niah_multikey_1       1.151x    1.151x   +0.000
+niah_multikey_2       1.059x    1.060x   -0.001
+niah_multikey_3       1.094x    1.094x   +0.000
+niah_multiquery       1.152x    1.153x   -0.001
+niah_multivalue       1.114x    1.114x   +0.000
+niah_single_1         1.130x    1.131x   -0.001
+niah_single_2         1.114x    1.116x   -0.002
+niah_single_3         1.114x    1.115x   -0.001
+qa_1                  1.143x    1.143x   +0.000
+qa_2                  1.247x    1.246x   +0.001
+vt                    1.112x    1.113x   -0.001
+MEAN                  1.133x    1.133x   +0.000
 ```
 
-Every task agrees to within 0.005x and the container reads uniformly very
-slightly faster, which is the shape of a small systematic offset rather than
-noise.
+Every task agrees to within 0.002x, well inside run-to-run noise.
+
+The sparsity column is now populated at this length too (mean 55.2%, replay
+sparsity): the vectorized counter in `sparsity_reference.py` makes an
+O(seqlen^2) count over 32768 tokens cheap enough to run unconditionally, so
+`--no-sparsity` is no longer needed here.
 
 Note the aggregation. A task's speedup is its layer times summed and then
 divided, so each layer counts for as much time as it takes. Averaging the
 per-layer ratios instead gives the cheap early layers, which have little
 sparsity to exploit, equal weight with the expensive ones, and reads about
-0.01x higher (1.143x here). Both are in the JSON. Quoting the two
-interchangeably is an easy way to produce a spurious disagreement.
+0.01x higher. Both are in the JSON. Quoting the two interchangeably is an easy
+way to produce a spurious disagreement.
 
 `QUICK=1`, 2 tasks, ctx=8192, threshold 0.03, as a smoke test. Speedups are
 lower than at 32768 because attention is a smaller share of the work at 8k, so
 do not compare these against the table above:
 
 ```
-Task                  sparsity   skip-only   V-deferred   >=1.0x
-niah_single_1            44.8%      1.064x       1.084x   33/36
-qa_1                     42.6%      1.063x       1.092x   29/36
-MEAN                     43.7%      1.063x       1.088x
+Task                  sparsity    speedup   >=1.0x
+niah_single_1            44.8%     1.058x   30/36
+qa_1                     42.6%     1.059x   29/36
+MEAN                     43.7%     1.059x
 ```
-
-These were produced before the aggregation fix above and are per-layer ratio
-means, so they read about 0.01x high.
 
 Note the sparsity column here is replay sparsity and reads high. See the
 caveats in README.md.
@@ -156,11 +159,31 @@ caveats in README.md.
 ## Stage 3: RULER accuracy
 
 `scripts/ruler_accuracy.py`, Qwen3-8B, ctx=32768, threshold 0.03, 13 tasks x 50
-samples (650 prompts per arm):
+samples (650 prompts per arm), reproduced through this bundle:
 
 ```
-  13-task aggregate    91.58%  ->  90.30%    (-1.28 pts)
+Task                         Dense   BLASST     Drop
+------------------------- -------- -------- --------
+cwe                          83.0%    78.6%    -4.4%
+fwe                          94.0%    88.7%    -5.3%
+niah_multikey_1              98.0%    96.0%    -2.0%
+niah_multikey_2             100.0%    98.0%    -2.0%
+niah_multikey_3             100.0%    96.0%    -4.0%
+niah_multiquery              99.5%    98.5%    -1.0%
+niah_multivalue              98.0%    98.5%    +0.5%
+niah_single_1               100.0%   100.0%    +0.0%
+niah_single_2               100.0%   100.0%    +0.0%
+niah_single_3               100.0%   100.0%    +0.0%
+qa_1                          66.0%    66.0%    +0.0%
+qa_2                          52.0%    56.0%    +4.0%
+vt                           100.0%    97.6%    -2.4%
+------------------------- -------- -------- --------
+AGGREGATE                   91.58%   90.30%   -1.28%
 ```
+
+Ran in about 2h37m end to end (dense arm 4752s, BLASST arm 4720s). Matches the
+earlier pre-bundle measurement's -1.28 pt figure exactly, per task as well as
+in aggregate.
 
 7 of 13 tasks degrade. The failure mode is aggregation over many positions
 (fwe -5.3, cwe -4.4), not pinpoint retrieval: all three `niah_single` tasks

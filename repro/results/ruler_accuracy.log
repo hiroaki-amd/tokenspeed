@@ -1,0 +1,103 @@
+Loading Qwen/Qwen3-8B...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+`torch_dtype` is deprecated! Use `dtype` instead!
+  Loaded 650 samples across 13 tasks:
+    cwe: 50 samples
+    fwe: 50 samples
+    niah_multikey_1: 50 samples
+    niah_multikey_2: 50 samples
+    niah_multikey_3: 50 samples
+    niah_multiquery: 50 samples
+    niah_multivalue: 50 samples
+    niah_single_1: 50 samples
+    niah_single_2: 50 samples
+    niah_single_3: 50 samples
+    qa_1: 50 samples
+    qa_2: 50 samples
+    vt: 50 samples
+Loaded 650 total RULER samples at ctx=32768
+
+--- Dense (threshold=0) ---
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+  [50/650] running avg: 83.0%
+  [100/650] running avg: 88.5%
+  [150/650] running avg: 91.7%
+  [200/650] running avg: 93.8%
+  [250/650] running avg: 95.0%
+  [300/650] running avg: 95.8%
+  [350/650] running avg: 96.1%
+  [400/650] running avg: 96.6%
+  [450/650] running avg: 96.9%
+  [500/650] running avg: 97.2%
+  [550/650] running avg: 94.4%
+  [600/650] running avg: 90.9%
+  [650/650] running avg: 91.6%
+Dense aggregate accuracy: 91.58% (4752s)
+Per-task:
+  cwe: 83.0%
+  fwe: 94.0%
+  niah_multikey_1: 98.0%
+  niah_multikey_2: 100.0%
+  niah_multikey_3: 100.0%
+  niah_multiquery: 99.5%
+  niah_multivalue: 98.0%
+  niah_single_1: 100.0%
+  niah_single_2: 100.0%
+  niah_single_3: 100.0%
+  qa_1: 66.0%
+  qa_2: 52.0%
+  vt: 100.0%
+
+--- BLASST (threshold=0.030000) ---
+  [50/650] running avg: 78.6%
+  [100/650] running avg: 83.6%
+  [150/650] running avg: 87.8%
+  [200/650] running avg: 90.3%
+  [250/650] running avg: 91.5%
+  [300/650] running avg: 92.6%
+  [350/650] running avg: 93.5%
+  [400/650] running avg: 94.3%
+  [450/650] running avg: 94.9%
+  [500/650] running avg: 95.4%
+  [550/650] running avg: 92.8%
+  [600/650] running avg: 89.7%
+  [650/650] running avg: 90.3%
+BLASST aggregate accuracy: 90.30% (4720s)
+Per-task:
+  cwe: 78.6%
+  fwe: 88.7%
+  niah_multikey_1: 96.0%
+  niah_multikey_2: 98.0%
+  niah_multikey_3: 96.0%
+  niah_multiquery: 98.5%
+  niah_multivalue: 98.5%
+  niah_single_1: 100.0%
+  niah_single_2: 100.0%
+  niah_single_3: 100.0%
+  qa_1: 66.0%
+  qa_2: 56.0%
+  vt: 97.6%
+
+============================================================
+RESULTS SUMMARY: ctx=32768, 650 samples, 13 tasks
+============================================================
+Task                         Dense   BLASST     Drop
+------------------------- -------- -------- --------
+cwe                          83.0%    78.6%    -4.4%
+fwe                          94.0%    88.7%    -5.3%
+niah_multikey_1              98.0%    96.0%    -2.0%
+niah_multikey_2             100.0%    98.0%    -2.0%
+niah_multikey_3             100.0%    96.0%    -4.0%
+niah_multiquery              99.5%    98.5%    -1.0%
+niah_multivalue              98.0%    98.5%    +0.5%
+niah_single_1               100.0%   100.0%    +0.0%
+niah_single_2               100.0%   100.0%    +0.0%
+niah_single_3               100.0%   100.0%    +0.0%
+qa_1                         66.0%    66.0%    +0.0%
+qa_2                         52.0%    56.0%    +4.0%
+vt                          100.0%    97.6%    -2.4%
+------------------------- -------- -------- --------
+AGGREGATE                   91.58%   90.30%   -1.28%
+
+Results saved to results/ruler_accuracy.json

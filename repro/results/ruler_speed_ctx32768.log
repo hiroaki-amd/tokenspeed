@@ -1,24 +1,23 @@
-
 ==============================================================================
 PER-LAYER SPEEDUP on real activations: ctx=32768, threshold=0.03
 ==============================================================================
-Task                  sparsity   skip-only   V-deferred   >=1.0x
-----------------------------------------------------------------
-cwe                        n/a      0.990x       1.092x   31/36
-fwe                        n/a      1.074x       1.207x   35/36
-niah_multikey_1            n/a      1.021x       1.153x   32/36
-niah_multikey_2            n/a      0.982x       1.062x   29/36
-niah_multikey_3            n/a      0.986x       1.096x   29/36
-niah_multiquery            n/a      1.023x       1.156x   32/36
-niah_multivalue            n/a      0.989x       1.117x   31/36
-niah_single_1              n/a      0.996x       1.132x   33/36
-niah_single_2              n/a      0.989x       1.117x   31/36
-niah_single_3              n/a      0.989x       1.116x   31/36
-qa_1                       n/a      1.000x       1.145x   31/36
-qa_2                       n/a      1.085x       1.250x   34/36
-vt                         n/a      0.987x       1.113x   32/36
-----------------------------------------------------------------
-MEAN                       n/a      1.009x       1.135x
+Task                  sparsity    speedup   >=1.0x
+--------------------------------------------------
+cwe                      49.8%     1.090x   31/36
+fwe                      57.5%     1.202x   35/36
+niah_multikey_1          54.9%     1.151x   32/36
+niah_multikey_2          45.3%     1.059x   29/36
+niah_multikey_3          53.6%     1.094x   28/36
+niah_multiquery          54.8%     1.152x   32/36
+niah_multivalue          55.0%     1.114x   31/36
+niah_single_1            61.0%     1.130x   33/36
+niah_single_2            55.0%     1.114x   31/36
+niah_single_3            54.9%     1.114x   31/36
+qa_1                     58.1%     1.143x   31/36
+qa_2                     60.4%     1.247x   34/36
+vt                       57.8%     1.112x   32/36
+--------------------------------------------------
+MEAN                     55.2%     1.133x
 
 Speedups are per task: layer times summed, then divided. MEAN is the mean over tasks of that.
 Averaging the per-layer ratios instead reads about 0.01x higher; both are in the JSON.

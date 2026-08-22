@@ -64,7 +64,6 @@ rather than read out of the kernel, which has no counters. It is O(seqlen^2)
 and slow; pass ``--no-sparsity`` for timings alone.
 """
 
-
 from __future__ import annotations
 
 import argparse
@@ -75,7 +74,6 @@ import sys
 import time
 
 import torch
-
 from sparsity_reference import count_block_sparsity
 
 # Inside the container run.sh bind-mounts the RULER tree here.
@@ -287,7 +285,11 @@ def main():
         defer_speedup = tot_dense / tot_defer if tot_defer else 0.0
         mean_skip = sum(r["skip_only_speedup"] for r in per_layer.values()) / n
         mean_defer = sum(r["v_deferred_speedup"] for r in per_layer.values()) / n
-        sps = [r["sparsity_pct"] for r in per_layer.values() if r["sparsity_pct"] is not None]
+        sps = [
+            r["sparsity_pct"]
+            for r in per_layer.values()
+            if r["sparsity_pct"] is not None
+        ]
         mean_sp = sum(sps) / len(sps) if sps else None
         results[task] = {
             "mean_sparsity_pct": mean_sp,
@@ -318,7 +320,9 @@ def main():
         f"threshold={args.threshold}"
     )
     print(f"{'='*78}")
-    hdr = f"{'Task':<20}{'sparsity':>10}{'skip-only':>12}{'V-deferred':>13}{'>=1.0x':>9}"
+    hdr = (
+        f"{'Task':<20}{'sparsity':>10}{'skip-only':>12}{'V-deferred':>13}{'>=1.0x':>9}"
+    )
     print(hdr)
     print("-" * len(hdr))
     for task in tasks:
@@ -331,8 +335,11 @@ def main():
             f"{r['layers_above_1x_v_deferred']:>5}/{r['num_layers']:<3}"
         )
     print("-" * len(hdr))
-    sps = [results[t]["mean_sparsity_pct"] for t in tasks
-           if results[t]["mean_sparsity_pct"] is not None]
+    sps = [
+        results[t]["mean_sparsity_pct"]
+        for t in tasks
+        if results[t]["mean_sparsity_pct"] is not None
+    ]
     m_sp = f"{sum(sps) / len(sps):.1f}%" if sps else "n/a"
     m_sk = sum(results[t]["skip_only_speedup"] for t in tasks) / len(tasks)
     m_df = sum(results[t]["v_deferred_speedup"] for t in tasks) / len(tasks)

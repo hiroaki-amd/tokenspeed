@@ -55,7 +55,6 @@ from __future__ import annotations
 import sys
 
 import torch
-
 from sparsity_reference import count_block_sparsity
 from tokenspeed_kernel_amd.ops.gfx950.attention.mha.prefill import (
     gluon_mha_prefill_gfx950,
@@ -93,8 +92,10 @@ def run(q, k, v, seqlen, threshold, defer):
 
 def main():
     failures = []
-    print(f"{'shape':>16} {'threshold':>10} {'ref sparsity':>13} "
-          f"{'partial':>8} {'differs':>8}  verdict")
+    print(
+        f"{'shape':>16} {'threshold':>10} {'ref sparsity':>13} "
+        f"{'partial':>8} {'differs':>8}  verdict"
+    )
 
     for seqlen, n_q, n_kv in SHAPES:
         torch.manual_seed(seqlen)
@@ -133,9 +134,11 @@ def main():
             verdict = "ok" if not problems else "FAIL: " + "; ".join(problems)
             if problems:
                 failures.append((seqlen, n_q, n_kv, threshold, problems))
-            print(f"{seqlen:>6} {n_q:>3}/{n_kv:<3} {threshold:>10} "
-                  f"{skipped:>6}/{total:<6} {partial:>8} {str(differs):>8}  "
-                  f"{verdict}")
+            print(
+                f"{seqlen:>6} {n_q:>3}/{n_kv:<3} {threshold:>10} "
+                f"{skipped:>6}/{total:<6} {partial:>8} {str(differs):>8}  "
+                f"{verdict}"
+            )
 
         del q, k, v, dense
         torch.cuda.empty_cache()

@@ -21,53 +21,66 @@ mean of 20 timed repeats after 5 warmups, dense measured in the same run.
 ```
 === 64 Q-heads / 4 KV-heads, GQA ratio 16 (paper Table 5 shape) ===
 
-  seqlen=16384 (16k)   dense 8.438 ms
+  seqlen=16384 (16k)   dense 8.443 ms
    threshold   sparsity   blasst ms   speedup
-         0.9     13.25%       8.637    0.977x
-         1.1     29.10%       8.063    1.047x
-         1.3     39.13%       7.779    1.085x
-         1.7     49.98%       7.474    1.129x
-         2.0     54.70%       7.355    1.147x
+       1e-09      0.00%      10.027    0.842x
+         1.0     21.57%       8.309    1.016x
+         1.3     39.13%       7.768    1.087x
+         1.7     49.98%       7.474    1.130x
+         4.0     64.62%       7.087    1.191x
+         6.0     78.19%       6.754    1.250x
+         8.0     88.57%       6.572    1.285x
+        10.0     93.88%       6.518    1.295x
 
-  seqlen=65536 (64k)   dense 136.791 ms
+  seqlen=65536 (64k)   dense 136.845 ms
    threshold   sparsity   blasst ms   speedup
-         0.7          -     130.018    1.052x
-         0.8          -     122.968    1.112x
-         0.9          -     117.117    1.168x
-         1.0          -     112.739    1.213x
-         1.1          -     110.031    1.243x
+       1e-09      0.00%     160.776    0.851x
+         0.7     20.88%     129.989    1.053x
+         0.8     33.95%     122.974    1.113x
+         0.9     46.07%     117.185    1.168x
+         1.1     63.57%     110.111    1.243x
+         2.0     80.96%     104.839    1.305x
+         6.0     89.40%     101.844    1.344x
+        10.0     96.09%     101.065    1.354x
 
 === 32 Q-heads / 8 KV-heads, GQA ratio 4 (Qwen3-8B shape) ===
 
-  seqlen=16384 (16k)   dense 4.228 ms
+  seqlen=16384 (16k)   dense 4.251 ms
    threshold   sparsity   blasst ms   speedup
-         0.9     13.21%       4.417    0.957x
-         1.1     29.09%       4.122    1.026x
-         1.3     39.14%       3.968    1.066x
-         1.7     50.17%       3.816    1.108x
-         2.0     54.88%       3.758    1.125x
+       1e-09      0.00%       5.127    0.829x
+         1.0     21.50%       4.263    0.997x
+         1.3     39.14%       3.975    1.070x
+         1.7     50.17%       3.831    1.110x
+         4.0     64.58%       3.647    1.166x
+         6.0     77.89%       3.482    1.221x
+         8.0     88.43%       3.409    1.247x
+        10.0     93.82%       3.384    1.256x
 
-  seqlen=65536 (64k)   dense 69.539 ms
+  seqlen=65536 (64k)   dense 69.721 ms
    threshold   sparsity   blasst ms   speedup
-         0.7          -      65.250    1.066x
-         0.8          -      61.967    1.122x
-         0.9          -      59.316    1.172x
-         1.0          -      57.264    1.214x
-         1.1          -      55.907    1.244x
+       1e-09      0.00%      80.017    0.871x
+         0.7     20.80%      65.361    1.067x
+         0.8     33.89%      62.067    1.123x
+         0.9     46.05%      59.414    1.173x
+         1.1     63.60%      56.012    1.245x
+         2.0     81.00%      53.086    1.313x
+         6.0     89.33%      51.587    1.352x
+        10.0     96.02%      50.676    1.376x
 ```
 
-The sparsity column is blank at 64k because the reference counter is a Python
-loop over blocks and is `O(n^2)`; `--sparsity-all` computes it anyway. Sparsity
-does not depend on the toolchain, so the 16k column carries the same
-information.
+Thresholds span roughly 0% to 95% sparsity at each length, the same range as
+Table 5 of the BLASST paper, rather than clustering around 50% as an earlier
+version of this table did. The sparsity column is populated at every length,
+including 64k: `sparsity_reference.py` batches the head and query-tile axes
+into GPU ops instead of looping over them in Python, which brings a 64k count
+down to a few seconds and makes the `--sparsity-all` / `--max-sparsity-seqlen`
+gate from the earlier version unnecessary. These sparsity figures match the
+kernel's own (since-removed) atomic counters to the digit at every threshold
+tested against them, including this range.
 
-Against the same sweep run outside the container, 18 of 20 rows agree to within
-0.002x. The two exceptions are 32/8 at 16k with thresholds 0.9 and 1.1
-(+0.007x and +0.003x), which are the two lowest-sparsity points of the smallest
-shape, where the measurement is a small difference between two nearly equal
-times. The same
-sweep on a ROCm 7.0 / torch 2.10 toolchain agreed to within 0.006x, so the
-numbers are not sensitive to the exact pins.
+Against the same sweep run outside the container (ROCm 7.0 / torch 2.10 instead
+of 7.2 / 2.11), all 32 rows agree to within 0.006x, so the numbers are not
+sensitive to the exact toolchain pins.
 
 ## Stage 2: RULER per-layer speed
 

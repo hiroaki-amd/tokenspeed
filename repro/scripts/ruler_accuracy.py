@@ -41,7 +41,6 @@ per arm, 1300 in total, and at ctx 32768 that is several hours. Use
 reuse a previous run's dense arm rather than recomputing it.
 """
 
-
 from __future__ import annotations
 
 import argparse
@@ -122,7 +121,9 @@ def _blasst_attention_fn(threshold: float, original_fn):
     def blasst_fn(module, query, key, value, attention_mask, *args, **kwargs):
         seq_len = query.size(-2)
         if seq_len == 1:
-            return original_fn(module, query, key, value, attention_mask, *args, **kwargs)
+            return original_fn(
+                module, query, key, value, attention_mask, *args, **kwargs
+            )
         if query.size(0) != 1:
             raise RuntimeError(
                 "blasst_fn only supports single-sequence (batch=1) prefill calls; "
@@ -211,7 +212,9 @@ def load_ruler_samples(data_dir, ctx_len, task_filter=None, max_samples_per_task
     return samples
 
 
-def compute_threshold_from_calibration(calibration_json, target_sparsity, context_length):
+def compute_threshold_from_calibration(
+    calibration_json, target_sparsity, context_length
+):
     """Compute threshold using paper's formula: lambda = alpha * exp(beta * S) / L."""
     with open(calibration_json) as f:
         data = json.load(f)
@@ -263,7 +266,9 @@ def run_evaluation(model, tokenizer, samples, threshold, device):
         task_scores[task_name].append(score)
 
         if (i + 1) % 50 == 0:
-            running_acc = sum(s for scores in task_scores.values() for s in scores) / (i + 1)
+            running_acc = sum(s for scores in task_scores.values() for s in scores) / (
+                i + 1
+            )
             print(f"  [{i+1}/{total}] running avg: {running_acc*100:.1f}%", flush=True)
 
     if threshold > 0:
@@ -283,7 +288,10 @@ def main():
     p.add_argument("--data-dir", default=_DEFAULT_RULER_DATA_DIR)
     p.add_argument("--context-length", type=int, default=32768)
     p.add_argument(
-        "--threshold", type=float, default=None, help="Fixed BLASST threshold (legacy mode)"
+        "--threshold",
+        type=float,
+        default=None,
+        help="Fixed BLASST threshold (legacy mode)",
     )
     p.add_argument(
         "--target-sparsity",
@@ -299,10 +307,15 @@ def main():
     p.add_argument("--device", default="cuda")
     p.add_argument("--output-file", default=None, help="Write results to this file")
     p.add_argument(
-        "--tasks", default=None, help="Comma-separated task names to evaluate (default: all)"
+        "--tasks",
+        default=None,
+        help="Comma-separated task names to evaluate (default: all)",
     )
     p.add_argument(
-        "--num-samples", type=int, default=None, help="Max samples per task (default: all)"
+        "--num-samples",
+        type=int,
+        default=None,
+        help="Max samples per task (default: all)",
     )
     p.add_argument(
         "--dense-from",
@@ -351,7 +364,9 @@ def main():
         # since the per-task numbers would not be comparable.
         with open(args.dense_from) as f:
             prev = json.load(f)
-        if prev["context_length"] != args.context_length or prev["num_samples"] != len(samples):
+        if prev["context_length"] != args.context_length or prev["num_samples"] != len(
+            samples
+        ):
             raise SystemExit(
                 f"--dense-from {args.dense_from} was run on ctx="
                 f"{prev['context_length']}/{prev['num_samples']} samples, but this run "
@@ -365,7 +380,9 @@ def main():
     else:
         print("\n--- Dense (threshold=0) ---")
         t0 = time.time()
-        dense_agg, dense_per_task = run_evaluation(model, tokenizer, samples, 0.0, args.device)
+        dense_agg, dense_per_task = run_evaluation(
+            model, tokenizer, samples, 0.0, args.device
+        )
         dense_time = time.time() - t0
         print(f"Dense aggregate accuracy: {dense_agg:.2f}% ({dense_time:.0f}s)")
     print("Per-task:")
@@ -398,7 +415,9 @@ def main():
         b = blasst_per_task.get(task, 0)
         print(f"{task:<25} {d:>7.1f}% {b:>7.1f}% {b-d:>+7.1f}%")
     print(f"{'-'*25} {'-'*8} {'-'*8} {'-'*8}")
-    print(f"{'AGGREGATE':<25} {dense_agg:>7.2f}% {blasst_agg:>7.2f}% {blasst_agg-dense_agg:>+7.2f}%")
+    print(
+        f"{'AGGREGATE':<25} {dense_agg:>7.2f}% {blasst_agg:>7.2f}% {blasst_agg-dense_agg:>+7.2f}%"
+    )
 
     if args.output_file:
         results = {

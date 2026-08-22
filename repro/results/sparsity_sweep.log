@@ -4,38 +4,38 @@ head_dim=128 dtype=torch.bfloat16 causal=True batch=1
 
 === 64 Q-heads / 4 KV-heads, GQA ratio 16 (paper Table 5 shape) ===
 
-  seqlen=16384 (16k)   dense 8.438 ms
+  seqlen=16384 (16k)   dense 8.444 ms
    threshold   sparsity   blasst ms   speedup
-         0.9     13.25%       8.637    0.977x
-         1.1     29.10%       8.063    1.047x
-         1.3     39.13%       7.779    1.085x
-         1.7     49.98%       7.474    1.129x
-         2.0     54.70%       7.355    1.147x
+         0.9     13.25%       8.630    0.978x
+         1.1     29.10%       8.069    1.046x
+         1.3     39.13%       7.770    1.087x
+         1.7     49.98%       7.473    1.130x
+         2.0     54.70%       7.352    1.149x
 
-  seqlen=65536 (64k)   dense 136.791 ms
+  seqlen=65536 (64k)   dense 136.765 ms
    threshold   sparsity   blasst ms   speedup
-         0.7          -     130.018    1.052x
-         0.8          -     122.968    1.112x
-         0.9          -     117.117    1.168x
-         1.0          -     112.739    1.213x
-         1.1          -     110.031    1.243x
+         0.7          -     129.924    1.053x
+         0.8          -     122.870    1.113x
+         0.9          -     117.047    1.168x
+         1.0          -     112.704    1.213x
+         1.1          -     110.064    1.243x
 
 === 32 Q-heads / 8 KV-heads, GQA ratio 4 (Qwen3-8B shape) ===
 
-  seqlen=16384 (16k)   dense 4.228 ms
+  seqlen=16384 (16k)   dense 4.222 ms
    threshold   sparsity   blasst ms   speedup
-         0.9     13.21%       4.417    0.957x
-         1.1     29.09%       4.122    1.026x
-         1.3     39.14%       3.968    1.066x
-         1.7     50.17%       3.816    1.108x
-         2.0     54.88%       3.758    1.125x
+         0.9     13.21%       4.450    0.949x
+         1.1     29.09%       4.146    1.018x
+         1.3     39.14%       3.988    1.059x
+         1.7     50.17%       3.847    1.098x
+         2.0     54.88%       3.790    1.114x
 
-  seqlen=65536 (64k)   dense 69.539 ms
+  seqlen=65536 (64k)   dense 69.471 ms
    threshold   sparsity   blasst ms   speedup
-         0.7          -      65.250    1.066x
-         0.8          -      61.967    1.122x
-         0.9          -      59.316    1.172x
-         1.0          -      57.264    1.214x
-         1.1          -      55.907    1.244x
+         0.7          -      65.303    1.064x
+         0.8          -      62.020    1.120x
+         0.9          -      59.365    1.170x
+         1.0          -      57.322    1.212x
+         1.1          -      56.006    1.240x
 
 wrote results/sparsity_sweep.json

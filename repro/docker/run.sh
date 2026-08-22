@@ -9,9 +9,18 @@
 # editing a script under scripts/, which stays bind-mounted.
 #
 # Environment:
-#   RULER_DATA   path to the RULER data directory (required for the RULER runs)
-#   HF_HOME      Hugging Face cache to reuse; defaults to ~/.cache/huggingface
-#   IMAGE        image tag to build/use
+#   RULER_DATA     path to the RULER data directory (required for the RULER runs)
+#   HF_HOME        Hugging Face cache to reuse; defaults to ~/.cache/huggingface
+#   IMAGE          image tag to build/use
+#   QUICK          forwarded to scripts/all.sh: smoke test instead of the full sweep
+#   SKIP_ACCURACY  forwarded to scripts/all.sh: skip the accuracy stage
+#   CTX            forwarded to scripts/all.sh: context length override
+#   THRESHOLD      forwarded to scripts/all.sh: skip_softmax_threshold override
+#   MODEL          forwarded to scripts/all.sh: model name override
+#
+# These are read by scripts/all.sh, not by this script, so they must be passed
+# through explicitly to the container below rather than just exported in the
+# host shell: `docker run` does not inherit the caller's environment.
 
 set -euo pipefail
 
@@ -80,6 +89,11 @@ exec docker run --rm "${tty_args[@]}" \
     -e HF_HOME=/hf \
     -e RULER_DATA="${RULER_DATA:+/work/ruler}" \
     -e HF_TOKEN="${HF_TOKEN:-}" \
+    -e QUICK="${QUICK:-}" \
+    -e SKIP_ACCURACY="${SKIP_ACCURACY:-}" \
+    -e CTX="${CTX:-}" \
+    -e THRESHOLD="${THRESHOLD:-}" \
+    -e MODEL="${MODEL:-}" \
     "${mounts[@]}" \
     -w /work/bundle \
     "$IMAGE" \

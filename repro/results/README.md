@@ -4,9 +4,20 @@ The raw output behind `../RESULTS.md`, committed so the write-up can be checked
 against what the scripts actually printed. Your own runs land in this directory
 too and are gitignored.
 
-These files predate `7d742874` and were produced by the old per-row skip rule;
-see the note at the top of `../RESULTS.md` before comparing them against a
-fresh run.
+Which kernel each file is from, as of the partial rerun on `7d742874`:
+
+```
+sparsity_sweep            7d742874, current
+ruler_speed_ctx32768      7d742874, current
+ruler_speed_quick         old per-row rule, not yet rerun
+ruler_accuracy            old per-row rule, not yet rerun
+ruler_accuracy_quick      old per-row rule, not yet rerun
+```
+
+Separately, the sparsity columns in *all* of these, including the two current
+files, were computed by `sparsity_reference.py` before `e58dcecf` fixed its
+recurrence, and undercount. The speed and accuracy columns do not go through
+that code. See the caveat at the top of `../RESULTS.md`.
 
 ```
 sparsity_sweep.log / .json           stage 1, both GQA shapes, 16k and 64k

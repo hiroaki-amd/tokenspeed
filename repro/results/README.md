@@ -17,12 +17,18 @@ ruler_accuracy_quick      old per-row rule, not yet rerun
 The two `quick` files are smoke tests that prove the pipeline runs; nothing in
 `../RESULTS.md` rests on them.
 
-Separately, the sparsity columns in *all* of these, including the two current
-files, were computed by `sparsity_reference.py` before `e58dcecf` fixed its
-recurrence, and undercount. The speed and accuracy columns do not go through
-that code. See the caveat at the top of `../RESULTS.md`.
+Separately, which counter produced each sparsity column. `sparsity_sweep` was
+recounted after `e58dcecf` fixed `sparsity_reference.py`'s recurrence and its
+figures moved substantially. `ruler_speed_ctx32768` predates the fix, but a
+rerun on the fixed counter reproduced every task's sparsity exactly and every
+speedup to within 0.002x, so it was left in place rather than replaced; see the
+stage 2 section of `../RESULTS.md` for why the two rules agree at threshold
+0.03. `ruler_speed_quick` predates the fix and has not been rechecked. The
+accuracy files have no sparsity column, and no speed or accuracy figure
+anywhere goes through the reference counter.
 
 ```
+verify_reference.log                 stage 0, reference self-check
 sparsity_sweep.log / .json           stage 1, both GQA shapes, 16k and 64k
 ruler_speed_ctx32768.log / .json     stage 2, all 13 tasks, ctx 32768, th 0.03
 ruler_speed_quick.log / .json        stage 2 under QUICK=1, 2 tasks, ctx 8192

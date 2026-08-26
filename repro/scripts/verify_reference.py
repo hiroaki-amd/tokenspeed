@@ -27,14 +27,15 @@ this script does instead is test the reference's *predictions* against
 observable kernel behaviour, which is weaker but needs nothing extra:
 
   [1] When the reference sees no block skipped in full, the kernel's output
-      must be bit-identical to dense. A block whose vote was not unanimous has
-      its votes discarded and runs exactly as it would with skipping off, so
-      votes alone must not perturb the result. This is the check that would
-      catch the reference applying votes per row: under that rule a partially
-      voted block *does* change the output, and the two cannot both be true.
+      must be bit-identical to the baseline. A block whose vote was not
+      unanimous has its votes discarded and runs exactly as it would with
+      skipping off, so votes alone must not perturb the result. This is the
+      check that would catch the reference applying votes per row: under that
+      rule a partially voted block *does* change the output, and the two cannot
+      both be true.
   [2] When the reference sees any block skipped in full, the output must
-      differ from dense. Together with [1] this pins sparsity to the exact
-      threshold at which the kernel's output starts moving.
+      differ from the baseline. Together with [1] this pins sparsity to the
+      exact threshold at which the kernel's output starts moving.
   [3] Sparsity must be monotonically non-decreasing in the threshold, in both
       the reference and, indirectly, the kernel.
   [4] ``defer_v_load=True`` must be bit-identical to ``False``. It changes when
@@ -47,6 +48,11 @@ post-block running max instead of the pre-block one).
 The partial count is still gathered and printed, but it is diagnostic only: it
 shows how wide the band is where rows vote in quantity and nothing is yet
 elided. It is deliberately *not* asserted against the output.
+
+The baseline for [1], [2] and [4] is ``skip_softmax_threshold=1e-9``, not
+``0.0``. See the comment at the ``dense =`` line: 0.0 is a different
+compilation and differs in the last bits for reasons that have nothing to do
+with skipping.
 
 Run inside the container:
 
@@ -75,8 +81,12 @@ SHAPES = [
     (2048, 4, 4),
 ]
 
-# Spans the transition from "nothing skipped" to "most blocks skipped".
-THRESHOLDS = [1e-9, 0.5, 0.9, 1.3, 2.0, 4.0]
+# Spans the transition from "nothing skipped" to "most blocks skipped". Every
+# one of these is measured against the 1e-9 baseline below, so the band where
+# rows vote but no block is unanimous has to be inside this list for [1] to be
+# testing anything: at 0.5 and 0.9 the small shapes have hundreds of votes and
+# zero skipped blocks, and must still come out bit-identical.
+THRESHOLDS = [0.5, 0.9, 1.3, 2.0, 4.0]
 
 
 def run(q, k, v, seqlen, threshold, defer):
@@ -106,7 +116,15 @@ def main():
         k = torch.randn(seqlen, n_kv, HEAD_DIM, device="cuda", dtype=DTYPE)
         v = torch.randn(seqlen, n_kv, HEAD_DIM, device="cuda", dtype=DTYPE)
 
-        dense = run(q, k, v, seqlen, 0.0, False)
+        # The baseline is threshold=1e-9, not 0.0. At 0.0 the skip branch is
+        # compiled out and the kernel takes the static scheduler, which
+        # associates the row-sum reduction differently, so it disagrees with
+        # every skipping build in the last bit or two even when nothing is
+        # skipped. That is a legitimate floating-point difference, not a skip,
+        # but comparing against it makes bit-identity untestable. 1e-9 is the
+        # same compilation as the thresholds under test, with a threshold too
+        # small for any row to vote, which is the baseline these checks want.
+        dense = run(q, k, v, seqlen, 1e-9, False)
         prev_skipped = -1
 
         for threshold in THRESHOLDS:
@@ -123,7 +141,9 @@ def main():
             # not enter this: they are discarded, so they must leave the output
             # bit-identical to dense.
             if not any_skip and differs:
-                problems.append("reference says no block skipped, kernel differs")
+                problems.append(
+                    "reference says no block skipped, kernel differs from baseline"
+                )
             if any_skip and not differs:
                 problems.append("reference says blocks skipped, kernel identical")
             # [3] monotonicity in the threshold

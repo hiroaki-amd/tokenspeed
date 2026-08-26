@@ -1,0 +1,28 @@
+           shape  threshold  ref sparsity  partial  differs  verdict
+   512   4/1          0.5      0/80           64    False  ok
+   512   4/1          0.9      0/80           64    False  ok
+   512   4/1          1.3      1/80           63     True  ok
+   512   4/1          2.0      7/80           57     True  ok
+   512   4/1          4.0     35/80           29     True  ok
+   512   8/2          0.5      0/160         128    False  ok
+   512   8/2          0.9      0/160         128    False  ok
+   512   8/2          1.3      0/160         128    False  ok
+   512   8/2          2.0     17/160         111     True  ok
+   512   8/2          4.0     64/160          64     True  ok
+  1024   4/2          0.5      0/288         256    False  ok
+  1024   4/2          0.9      0/288         256    False  ok
+  1024   4/2          1.3      7/288         249     True  ok
+  1024   4/2          2.0     40/288         216     True  ok
+  1024   4/2          4.0    159/288          97     True  ok
+  2048   8/2          0.5      0/2176       2048    False  ok
+  2048   8/2          0.9     10/2176       2038     True  ok
+  2048   8/2          1.3    110/2176       1938     True  ok
+  2048   8/2          2.0    610/2176       1438     True  ok
+  2048   8/2          4.0   1480/2176        568     True  ok
+  2048   4/4          0.5      0/1088       1024    False  ok
+  2048   4/4          0.9      6/1088       1018     True  ok
+  2048   4/4          1.3     55/1088        969     True  ok
+  2048   4/4          2.0    308/1088        716     True  ok
+  2048   4/4          4.0    743/1088        281     True  ok
+
+all checks passed.

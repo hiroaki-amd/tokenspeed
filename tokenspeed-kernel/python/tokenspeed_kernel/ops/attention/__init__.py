@@ -2070,6 +2070,7 @@ def mha_prefill(
     sinks: torch.Tensor | None = None,
     return_lse: bool = False,
     softmax_scale: float | None = None,
+    skip_softmax_threshold: float = 0.0,
     # dispatch options
     override: str | None = None,
     solution: str | None = None,
@@ -2092,6 +2093,17 @@ def mha_prefill(
             shape [total_q, num_q_heads].
         softmax_scale: Scale applied to QK logits before softmax. None uses the
             backend default 1/sqrt(head_dim).
+        skip_softmax_threshold: A K/V block is skipped for a query row when
+            exp(block_max_score - running_max) < skip_softmax_threshold.
+            0.0 disables skipping (default, exact dense attention); higher
+            values skip more at the cost of output deviation, and the rate
+            for a given threshold must be calibrated per workload. Above
+            1.0 a skipped block can outscore the running max, which is
+            outside the method's intended regime. Routes selection
+            exclusively to kernels declaring the "support_skip_softmax"
+            trait. With return_lse, skipped blocks are missing from the
+            denominator, so the LSE is biased low and two results are only
+            comparable if produced with the same threshold.
         override: Optional kernel override name.
         solution: Optional kernel solution to force through normal selection.
 
@@ -2107,6 +2119,8 @@ def mha_prefill(
         "support_sinks": sinks is not None,
         "return_lse": return_lse,
     }
+    if skip_softmax_threshold > 0.0:
+        traits["support_skip_softmax"] = True
     signature = _attention_format_signature(q=q, k=k, v=v)
     kernel = select_kernel(
         "attention",
@@ -2135,6 +2149,14 @@ def mha_prefill(
         shape_params,
     )
 
+    # A zero threshold does not request the trait, so selection can land on a
+    # kernel that has no such parameter.
+    extra_kwargs = (
+        {"skip_softmax_threshold": skip_softmax_threshold}
+        if skip_softmax_threshold > 0.0
+        else {}
+    )
+
     # Enter profiling scope
     with kernel_scope(
         "attention",
@@ -2155,6 +2177,7 @@ def mha_prefill(
             sinks=sinks,
             return_lse=return_lse,
             softmax_scale=softmax_scale,
+            **extra_kwargs,
         )
 
 

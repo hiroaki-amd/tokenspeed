@@ -26,16 +26,15 @@ That check was run during development and matched exactly on five shapes. What
 this script does instead is test the reference's *predictions* against
 observable kernel behaviour, which is weaker but needs nothing extra:
 
-  [1] When the reference sees no row skipping anything anywhere, the kernel's
-      output must be bit-identical to dense. If the reference under-counts, the
-      kernel skipped something it did not know about and the outputs differ.
-  [2] When the reference sees any row skip, the output must differ from dense.
-      Note this is the *partial* count, not the sparsity count: a block where
-      one row skips still runs its matmul, so it saves nothing, but it zeroes
-      that row out of ``p`` and so changes the result. Testing sparsity here
-      instead would wrongly demand bit-identical output across the whole band
-      of thresholds where rows have started skipping but no block is yet
-      skipped in full.
+  [1] When the reference sees no block skipped in full, the kernel's output
+      must be bit-identical to dense. A block whose vote was not unanimous has
+      its votes discarded and runs exactly as it would with skipping off, so
+      votes alone must not perturb the result. This is the check that would
+      catch the reference applying votes per row: under that rule a partially
+      voted block *does* change the output, and the two cannot both be true.
+  [2] When the reference sees any block skipped in full, the output must
+      differ from dense. Together with [1] this pins sparsity to the exact
+      threshold at which the kernel's output starts moving.
   [3] Sparsity must be monotonically non-decreasing in the threshold, in both
       the reference and, indirectly, the kernel.
   [4] ``defer_v_load=True`` must be bit-identical to ``False``. It changes when
@@ -44,6 +43,10 @@ observable kernel behaviour, which is weaker but needs nothing extra:
 Together these pin the threshold at which skipping begins, which is the part
 most likely to be wrong (an off-by-one in log space, or comparing against the
 post-block running max instead of the pre-block one).
+
+The partial count is still gathered and printed, but it is diagnostic only: it
+shows how wide the band is where rows vote in quantity and nothing is yet
+elided. It is deliberately *not* asserted against the output.
 
 Run inside the container:
 
@@ -110,17 +113,19 @@ def main():
             total, skipped, partial = count_block_sparsity(
                 q, k, threshold, count_partial=True
             )
-            any_skip = (skipped + partial) > 0
+            any_skip = skipped > 0
             out = run(q, k, v, seqlen, threshold, False)
             differs = not torch.equal(out, dense)
 
             problems = []
             # [1] and [2]: the reference must agree with the kernel about
-            # whether anything was skipped at all.
+            # whether any block was elided. Votes that were not unanimous do
+            # not enter this: they are discarded, so they must leave the output
+            # bit-identical to dense.
             if not any_skip and differs:
-                problems.append("reference says nothing skipped, kernel differs")
+                problems.append("reference says no block skipped, kernel differs")
             if any_skip and not differs:
-                problems.append("reference says rows skipped, kernel identical")
+                problems.append("reference says blocks skipped, kernel identical")
             # [3] monotonicity in the threshold
             if skipped < prev_skipped:
                 problems.append(f"sparsity fell from {prev_skipped} to {skipped}")

@@ -26,6 +26,24 @@ else
 fi
 
 echo
+echo "############ 0/3  reference self-check ############"
+echo "Tests the sparsity counter against the kernel before anything quotes it."
+# Deliberately not fatal, and note the `|| status=$?` is also what keeps
+# `set -e` from killing the run here. A failure invalidates the sparsity
+# columns of stages 1 and 2, but speed and accuracy are measured off the kernel
+# and never go through the reference, so aborting would discard hours of valid
+# measurement over a counter bug. Record it and repeat it at the end, where it
+# cannot be scrolled past.
+verify_status=0
+python scripts/verify_reference.py 2>&1 | tee "$OUT/verify_reference.log" \
+    || verify_status=$?
+if [[ $verify_status -ne 0 ]]; then
+    echo
+    echo "!!!! reference self-check FAILED. The sparsity columns below are not"
+    echo "!!!! trustworthy. Speed and accuracy are unaffected. Continuing."
+fi
+
+echo
 echo "############ 1/3  synthetic sparsity sweep ############"
 python scripts/sparsity_sweep.py \
     --output-file "$OUT/sparsity_sweep.json" \
@@ -58,3 +76,10 @@ fi
 
 echo
 echo "done. results in $OUT/"
+if [[ $verify_status -ne 0 ]]; then
+    echo
+    echo "!!!! Reminder: the reference self-check failed at the start of this"
+    echo "!!!! run. Do not quote any sparsity figure above. See"
+    echo "!!!! $OUT/verify_reference.log."
+    exit 1
+fi

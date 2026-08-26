@@ -22,6 +22,12 @@ ruler_accuracy_quick      7d742874, current
 The two `quick` files are smoke tests that prove the pipeline runs; nothing in
 `../RESULTS.md` rests on them.
 
+`7d742874` no longer exists as a commit: that branch was restructured into three
+commits and rebased onto a newer upstream, landing as `6338894c` on the PR
+branch. The MHA prefill kernel is byte-identical across the move, so every file
+above still describes the current kernel, but the image they were produced in
+is not the one `run.sh` now builds. See the note at the top of `../RESULTS.md`.
+
 Separately, which counter produced each sparsity column. `sparsity_sweep` was
 recounted after `e58dcecf` fixed `sparsity_reference.py`'s recurrence and its
 figures moved substantially. `ruler_speed` predates the fix, but a

@@ -7,6 +7,16 @@ of it was measured through `docker/run.sh`, against kernel commit `7d742874`
 All three stages below are from that kernel, including the two `QUICK=1` smoke
 tests, which are marked where they appear.
 
+`7d742874` is no longer reachable: the branch it sat on was restructured into
+three commits and rebased onto a newer upstream, landing as `6338894c` on the
+PR branch. The MHA prefill kernel these numbers measure is byte-identical
+across that move, so they still describe the current kernel. What did change
+is the image tag, which hashes the whole of `tokenspeed-kernel-amd/`: upstream
+touched thirty unrelated files in that directory (MoE, MXFP4, KDA), so
+`run.sh` now derives a different tag and builds a fresh image rather than
+reusing the one these numbers came from. Nothing below has been rerun against
+that image yet.
+
 Every sparsity figure below has been recounted since `e58dcecf` fixed
 `scripts/sparsity_reference.py`, which until then advanced the running max per
 row rather than per unanimous block (the pre-`7d742874` rule). Because the

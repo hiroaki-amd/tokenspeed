@@ -4,7 +4,7 @@ What this bundle produced on MI350X, for comparison against your own run. All
 of it was measured through `docker/run.sh`, against kernel commit `7d742874`
 ("Skip the softmax update only when the whole query tile votes to skip").
 
-All three stages below are from that kernel, except the two `QUICK=1` smoke
+All three stages below are from that kernel, including the two `QUICK=1` smoke
 tests, which are marked where they appear.
 
 Every sparsity figure below has been recounted since `e58dcecf` fixed
@@ -191,21 +191,24 @@ way to produce a spurious disagreement.
 
 `QUICK=1`, 2 tasks, ctx=8192, threshold 0.03, as a smoke test. Speedups are
 lower than at 32768 because attention is a smaller share of the work at 8k, so
-do not compare these against the table above. Not yet rerun on `7d742874`,
-so expect the real figures to be higher:
+do not compare these against the table above:
 
 ```
 Task                  sparsity    speedup   >=1.0x
-niah_single_1            44.8%     1.058x   30/36
-qa_1                     42.6%     1.059x   29/36
-MEAN                     43.7%     1.059x
+niah_single_1            44.8%     1.157x   34/36
+qa_1                     42.6%     1.161x   30/36
+MEAN                     43.7%     1.159x
 ```
 
+On the old kernel this read 1.059x, with 30 and 29 layers at or above 1.0x.
+Sparsity is unchanged to the decimal shown, the same agreement between the two
+counting rules that stage 2 shows at this threshold. Two consecutive runs of
+this smoke test came out 1.159x and 1.173x, so read the third decimal as noise:
+at 8k the per-layer times are small enough that run-to-run variance is visible,
+which is another reason not to lean on this table.
+
 Note the sparsity column here is replay sparsity and reads high. See the
-caveats in README.md. It is also the only sparsity column on this page still
-produced by the pre-`e58dcecf` counter, since this file has not been rerun; at
-threshold 0.03 that made no difference anywhere else, so it probably makes none
-here either, but nothing has checked.
+caveats in README.md.
 
 ## Stage 3: RULER accuracy
 
@@ -254,9 +257,10 @@ Discarding the vote instead leaves those rows bit-identical to dense, so the
 only rows that lose anything are the ones in a block the whole tile agreed to
 skip.
 
-`QUICK=1` is 3 samples per task and is far too small to say anything about
-accuracy. It exists to prove the pipeline runs. For the record it came out at
-100.0% / 33.3% on both arms, dense and BLASST alike.
+`QUICK=1` is 3 samples per task at ctx 8192 and is far too small to say
+anything about accuracy. It exists to prove the pipeline runs. For the record
+it came out at 100.0% on `niah_single_1` and 33.3% on `qa_1`, identical on both
+arms.
 
 ## Sparsity
 

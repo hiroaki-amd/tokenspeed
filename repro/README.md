@@ -55,6 +55,11 @@ The first invocation builds the image, which takes several minutes. Results are
 written to `results/` as a log and a JSON file per stage. `RESULTS.md` has the
 numbers this produced on our MI350X, to compare against.
 
+`QUICK=1` writes the two RULER stages to `*_quick.*` so a twenty-minute smoke
+test cannot overwrite a full run that took hours. The synthetic sweep and the
+reference self-check are not affected by `QUICK` and write the same files
+either way.
+
 Budget roughly: synthetic sweep 10 minutes, RULER speed 40 minutes, RULER
 accuracy several hours (650 prompts per arm, two arms).
 

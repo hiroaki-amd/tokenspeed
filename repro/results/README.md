@@ -10,8 +10,8 @@ Which kernel each file is from, as of the partial rerun on `7d742874`:
 sparsity_sweep            7d742874, current
 ruler_speed_ctx32768      7d742874, current
 ruler_accuracy            7d742874, current
-ruler_speed_quick         old per-row rule, not yet rerun
-ruler_accuracy_quick      old per-row rule, not yet rerun
+ruler_speed_quick         7d742874, current
+ruler_accuracy_quick      7d742874, current
 ```
 
 The two `quick` files are smoke tests that prove the pipeline runs; nothing in
@@ -23,9 +23,10 @@ figures moved substantially. `ruler_speed_ctx32768` predates the fix, but a
 rerun on the fixed counter reproduced every task's sparsity exactly and every
 speedup to within 0.002x, so it was left in place rather than replaced; see the
 stage 2 section of `../RESULTS.md` for why the two rules agree at threshold
-0.03. `ruler_speed_quick` predates the fix and has not been rechecked. The
-accuracy files have no sparsity column, and no speed or accuracy figure
-anywhere goes through the reference counter.
+0.03. `ruler_speed_quick` is on the fixed counter and agrees with its
+pre-fix figures to the decimal shown, for the same reason. The accuracy files
+have no sparsity column, and no speed or accuracy figure anywhere goes through
+the reference counter.
 
 ```
 verify_reference.log                 stage 0, reference self-check

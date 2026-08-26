@@ -9,13 +9,13 @@ Loaded 6 total RULER samples at ctx=8192
 --- Dense (threshold=0) ---
 The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
 The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
-Dense aggregate accuracy: 66.67% (17s)
+Dense aggregate accuracy: 66.67% (9s)
 Per-task:
   niah_single_1: 100.0%
   qa_1: 33.3%
 
 --- BLASST (threshold=0.030000) ---
-BLASST aggregate accuracy: 66.67% (7s)
+BLASST aggregate accuracy: 66.67% (6s)
 Per-task:
   niah_single_1: 100.0%
   qa_1: 33.3%
@@ -30,4 +30,4 @@ qa_1                         33.3%    33.3%    +0.0%
 ------------------------- -------- -------- --------
 AGGREGATE                   66.67%   66.67%   +0.00%
 
-Results saved to results/ruler_accuracy.json
+Results saved to results/ruler_accuracy_quick.json

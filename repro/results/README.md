@@ -4,6 +4,10 @@ The raw output behind `../RESULTS.md`, committed so the write-up can be checked
 against what the scripts actually printed. Your own runs land in this directory
 too and are gitignored.
 
+These files predate `7d742874` and were produced by the old per-row skip rule;
+see the note at the top of `../RESULTS.md` before comparing them against a
+fresh run.
+
 ```
 sparsity_sweep.log / .json           stage 1, both GQA shapes, 16k and 64k
 ruler_speed_ctx32768.log / .json     stage 2, all 13 tasks, ctx 32768, th 0.03

@@ -32,22 +32,25 @@ What is counted, matching ``process_attention_tile`` in the Gluon kernel:
     starting at ``q_start``, the main loop visits ``q_start // BLOCK_N`` fully
     unmasked K/V blocks, then two causal boundary blocks on the diagonal. All
     of those count toward the denominator.
-  * A block is *skipped* only when every one of the ``BLOCK_M`` rows skips it
-    (the kernel's ``all_skip``); that is the case where the P@V matmul is
-    elided, and it is the only case that saves time. Partially skipped blocks
-    still run the matmul, so they are not sparsity, but they are not harmless
-    either: the skipped rows are zeroed out of ``p``, so the output changes.
-    Sparsity and "does the result differ from dense" are therefore different
-    questions, and ``count_partial`` answers the second one.
-  * A row skips a block when ``exp(row_max - m_i) < threshold``, where both are
-    softmax-scaled scores, ``row_max`` is that row's maximum over the block and
-    ``m_i`` is the running max from *before* the block. The kernel compares in
-    log2 space; the algebra is identical, and this module compares in natural
-    log space to keep it readable.
-  * Skipped rows do not advance the running max, so a skip decision feeds back
-    into later blocks. This is a sequential recurrence over blocks, not a
+  * A row *votes* to skip a block when ``exp(row_max - m_i) < threshold``,
+    where both are softmax-scaled scores, ``row_max`` is that row's maximum
+    over the block and ``m_i`` is the running max from *before* the block. The
+    kernel compares in log2 space; the algebra is identical, and this module
+    compares in natural log space to keep it readable.
+  * A block is skipped only when every one of the ``BLOCK_M`` rows votes for
+    it (the kernel's ``all_skip``); that is the case where the P@V matmul is
+    elided, and it is the only case that saves time. On any other block the
+    votes are *discarded* and every row takes the ordinary online-softmax
+    update, bit for bit as if skipping were off. Partially voted blocks
+    therefore cost full time and leave the result unchanged; ``count_partial``
+    reports them for diagnostics, not because they affect the output.
+  * A skipped block does not advance the running max, so a skip decision feeds
+    back into later blocks. This is a sequential recurrence over blocks, not a
     one-shot mask, and it is why sparsity cannot be computed from the score
-    matrix alone.
+    matrix alone. Note the recurrence is driven by the unanimous decision, not
+    by the individual votes: holding a voting row's max back on a dissenting
+    block is the pre-``7d742874`` rule and undercounts sparsity, because a
+    suppressed max makes that row less likely to clear the threshold later.
 
 Sequences shorter than ``BLOCK_N`` take a separate single-tile path in the
 kernel that has no skipping, and are excluded here for the same reason.
@@ -110,11 +113,12 @@ def count_block_sparsity(
         block_m: query tile size, must match the kernel's ``BLOCK_M``.
         block_n: key tile size, must match the kernel's ``BLOCK_N``.
         count_partial: also return the number of blocks where at least one row
-            skipped. Those blocks still run their P@V matmul, so they do not
-            count as sparsity and do not save time, but they *do* change the
-            numerical result, because the skipped rows contribute nothing to
-            the accumulator. Anything asking "should the output differ from
-            dense?" needs this count, not the fully-skipped one.
+            voted to skip but the vote was not unanimous. Those blocks still
+            run their P@V matmul, so they do not count as sparsity and do not
+            save time, and since the votes are discarded they do not change the
+            result either. Useful for seeing how far ahead of sparsity the vote
+            rate runs, which is the gap the threshold has to cross before
+            anything is elided.
 
     Returns:
         ``(total_blocks, skipped_blocks)``, or
@@ -222,9 +226,15 @@ def count_block_sparsity(
         if count_partial:
             partial += int(((n_skipped_rows > 0) & (~fully_skipped)).sum().item())
 
-        # Skipped rows keep their old running max.
+        # The vote is per block, not per row: only on a unanimous block does
+        # anything get elided, and there the running max is unchanged by
+        # definition (every row's row_max is below it). On any other block the
+        # votes are discarded and every row takes the ordinary update, even the
+        # rows that voted to skip. Applying the votes per row here instead
+        # would make a dissenting block hold the voting rows' max back, which
+        # feeds into every later block through this recurrence.
         m_i[:, t_lo:, :] = torch.where(
-            skip, m_i_slice, torch.maximum(m_i_slice, row_max)
+            fully_skipped.unsqueeze(-1), m_i_slice, torch.maximum(m_i_slice, row_max)
         )
 
     if count_partial:

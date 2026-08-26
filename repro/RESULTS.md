@@ -4,8 +4,8 @@ What this bundle produced on MI350X, for comparison against your own run. All
 of it was measured through `docker/run.sh`, against kernel commit `7d742874`
 ("Skip the softmax update only when the whole query tile votes to skip").
 
-Stages 1 and 2 below are from that kernel. **Stage 3 is not yet**, and is
-marked where it starts.
+All three stages below are from that kernel, except the two `QUICK=1` smoke
+tests, which are marked where they appear.
 
 > **One column here is known bad: sparsity.** Every sparsity figure on this
 > page was produced by `scripts/sparsity_reference.py` before `e58dcecf`, when
@@ -186,43 +186,50 @@ caveats in README.md.
 
 ## Stage 3: RULER accuracy
 
-> **Not yet rerun on `7d742874`.** The table below is from the old per-row
-> rule, which is the one the accuracy cost is charged against, so this is the
-> figure most likely to move. An earlier measurement outside this bundle put
-> the new rule at 91.24% -> 91.52%, a 0.28 point *gain* where the old rule cost
-> 1.28 points, but that has not been reproduced here. Treat this section as
-> superseded pending the rerun.
-
 `scripts/ruler_accuracy.py`, Qwen3-8B, ctx=32768, threshold 0.03, 13 tasks x 50
 samples (650 prompts per arm), reproduced through this bundle:
 
 ```
 Task                         Dense   BLASST     Drop
 ------------------------- -------- -------- --------
-cwe                          83.0%    78.6%    -4.4%
-fwe                          94.0%    88.7%    -5.3%
-niah_multikey_1              98.0%    96.0%    -2.0%
-niah_multikey_2             100.0%    98.0%    -2.0%
-niah_multikey_3             100.0%    96.0%    -4.0%
-niah_multiquery              99.5%    98.5%    -1.0%
+cwe                          83.0%    82.4%    -0.6%
+fwe                          94.0%    92.0%    -2.0%
+niah_multikey_1              98.0%    98.0%    +0.0%
+niah_multikey_2             100.0%   100.0%    +0.0%
+niah_multikey_3             100.0%   100.0%    +0.0%
+niah_multiquery              99.5%    99.5%    +0.0%
 niah_multivalue              98.0%    98.5%    +0.5%
 niah_single_1               100.0%   100.0%    +0.0%
 niah_single_2               100.0%   100.0%    +0.0%
 niah_single_3               100.0%   100.0%    +0.0%
-qa_1                          66.0%    66.0%    +0.0%
-qa_2                          52.0%    56.0%    +4.0%
-vt                           100.0%    97.6%    -2.4%
+qa_1                         66.0%    68.0%    +2.0%
+qa_2                         52.0%    54.0%    +2.0%
+vt                          100.0%   100.0%    +0.0%
 ------------------------- -------- -------- --------
-AGGREGATE                   91.58%   90.30%   -1.28%
+AGGREGATE                   91.58%   91.72%   +0.15%
 ```
 
-Ran in about 2h37m end to end (dense arm 4752s, BLASST arm 4720s). Matches the
-earlier pre-bundle measurement's -1.28 pt figure exactly, per task as well as
-in aggregate.
+Ran in about 2h36m end to end (dense arm 4761s, BLASST arm 4616s).
 
-7 of 13 tasks degrade. The failure mode is aggregation over many positions
-(fwe -5.3, cwe -4.4), not pinpoint retrieval: all three `niah_single` tasks
-hold at 100.0%.
+The dense arm is bit-identical to what the old kernel's dense arm produced,
+task for task, which is the check that the two runs are comparable: dense is
+the same code path either way, and threshold 0.03 is the only thing that
+differs between the arms.
+
+**Only 2 of 13 tasks degrade, and the aggregate does not.** On the old per-row
+rule the same threshold cost 1.28 points; here it gains 0.15. The two tasks
+that still move are the same two that moved most before, and both improved:
+`fwe` -5.3 -> -2.0 and `cwe` -4.4 -> -0.6. Everything else is flat or better,
+and the three tasks that read as gains (`niah_multivalue` +0.5, `qa_1` +2.0,
+`qa_2` +2.0) are within what 50 samples per task can resolve; they are not
+evidence that approximating attention helps.
+
+The reason is the same one behind the speedup. The old rule zeroed a
+dissenting block's voting rows out of `p`, which both discarded their
+contribution and held their running max down, compounding into later blocks.
+Discarding the vote instead leaves those rows bit-identical to dense, so the
+only rows that lose anything are the ones in a block the whole tile agreed to
+skip.
 
 `QUICK=1` is 3 samples per task and is far too small to say anything about
 accuracy. It exists to prove the pipeline runs. For the record it came out at

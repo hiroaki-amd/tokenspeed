@@ -21,25 +21,25 @@
       "qa_2": 52.0,
       "vt": 100.0
     },
-    "time_s": 4751.806575059891
+    "time_s": 4760.7020626068115
   },
   "blasst": {
-    "aggregate": 90.29743589743589,
+    "aggregate": 91.72307692307693,
     "per_task": {
-      "cwe": 78.6,
-      "fwe": 88.66666666666667,
-      "niah_multikey_1": 96.0,
-      "niah_multikey_2": 98.0,
-      "niah_multikey_3": 96.0,
-      "niah_multiquery": 98.5,
+      "cwe": 82.4,
+      "fwe": 92.0,
+      "niah_multikey_1": 98.0,
+      "niah_multikey_2": 100.0,
+      "niah_multikey_3": 100.0,
+      "niah_multiquery": 99.5,
       "niah_multivalue": 98.5,
       "niah_single_1": 100.0,
       "niah_single_2": 100.0,
       "niah_single_3": 100.0,
-      "qa_1": 66.0,
-      "qa_2": 56.00000000000001,
-      "vt": 97.6
+      "qa_1": 68.0,
+      "qa_2": 54.0,
+      "vt": 100.0
     },
-    "time_s": 4720.366788864136
+    "time_s": 4615.6500425338745
   }
 }

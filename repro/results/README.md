@@ -9,10 +9,13 @@ Which kernel each file is from, as of the partial rerun on `7d742874`:
 ```
 sparsity_sweep            7d742874, current
 ruler_speed_ctx32768      7d742874, current
+ruler_accuracy            7d742874, current
 ruler_speed_quick         old per-row rule, not yet rerun
-ruler_accuracy            old per-row rule, not yet rerun
 ruler_accuracy_quick      old per-row rule, not yet rerun
 ```
+
+The two `quick` files are smoke tests that prove the pipeline runs; nothing in
+`../RESULTS.md` rests on them.
 
 Separately, the sparsity columns in *all* of these, including the two current
 files, were computed by `sparsity_reference.py` before `e58dcecf` fixed its

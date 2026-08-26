@@ -4,9 +4,10 @@ Everything needed to re-measure the numbers in the skip-softmax PR, in a
 container so the toolchain is not a variable.
 
 The change adds BLASST-style block sparsity (arXiv:2512.12087) to tokenspeed's
-Gluon MHA prefill kernel on gfx950 (MI350X): a K/V block's `P@V` matmul is
-skipped for query rows whose contribution to the softmax is negligible against
-the running max. Three things ship together, and the bundle measures all three,
+Gluon MHA prefill kernel on gfx950 (MI350X): a query row votes to skip a K/V
+block when its contribution to the softmax is negligible against the running
+max, and the block is dropped when every row of the query tile votes for it.
+Three things ship together, and the bundle measures all three,
 because the first two on their own make real workloads *slower*:
 
 1. `skip_softmax_threshold`, the skip itself.
@@ -104,26 +105,27 @@ length it sweeps, including 64k, and `scripts/ruler_speed.py` no longer needs
 
 Two caveats worth reading before quoting a sparsity figure.
 
-**Sparsity is not the same as "the output changed."** A block counts as sparsity
-only when *all* of its query rows skip it, because that is the only case where
-the `P@V` matmul is actually elided. Blocks where some rows skip still run the
-matmul, so they save nothing, but they do change the numerical result. There is
-a wide band of thresholds where the output has already changed and sparsity is
-still zero.
+**The row-level rate runs far ahead of the block-level one.** A block counts as
+sparsity only when *all* of its query rows vote to skip it, because that is the
+only case where anything is elided. Where some rows vote and others do not, the
+votes are discarded and every row takes the ordinary update, so the block costs
+full time and leaves the result unchanged. There is a wide band of thresholds
+where rows vote in quantity and sparsity is still zero, and across that band the
+output is bit-identical to dense.
 
 **Replay sparsity reads higher than live sparsity.** `ruler_speed.py` captures
 activations under dense attention and replays them. In a real run the
-approximation perturbs each layer's input, and sparsity comes out lower: 43.9%
-live against 54.9% replayed, at threshold 0.03 and ctx 32768. Timings are
-unaffected, since they depend only on the tensors passed in, but the sparsity
-column in the speed run is replay sparsity and should be labelled as such.
+approximation perturbs each layer's input, and sparsity comes out lower. Timings
+are unaffected, since they depend only on the tensors passed in, but the
+sparsity column in the speed run is replay sparsity and should be labelled as
+such.
 
 ## Calibration
 
 The threshold is a probability ratio, not a score, and the sparsity it produces
 depends on the score distribution. That shifts with sequence length and with the
 model, so it has to be calibrated per workload. `0.03` at ctx 32768 on Qwen3-8B
-is roughly 44% live sparsity; the same threshold means something different
+drops roughly 60% of blocks live; the same threshold means something different
 elsewhere. `skip_softmax_threshold=0.0` is the default and is exact dense
 attention, bit-identical to the kernel without the feature.
 

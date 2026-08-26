@@ -1,13 +1,25 @@
 # Reference numbers
 
+> **Stale: these predate `7d742874` and do not describe the kernel this bundle
+> now builds.** That commit changed the skip rule from per row to per block. The
+> per-row test now only casts a vote, and a block is dropped only when every row
+> of the query tile agrees; previously a dissenting block still had the voting
+> rows' softmax numerator zeroed. Holding a skipped row's running max back made
+> that row less likely to clear the threshold on later blocks, so the old rule
+> cost accuracy and sparsity both. At a fixed threshold the numbers below
+> therefore understate sparsity and speed while overstating the accuracy loss:
+> RULER moves from 91.58% -> 90.30% (-1.28 pts) to 91.24% -> 91.52% (+0.28 pts),
+> and block sparsity at threshold 0.03 from 43.9% to 59.6%. Re-run the bundle
+> for current figures. This file is kept only so that a run against the old
+> kernel stays interpretable.
+
 What this bundle produced on MI350X, for comparison against your own run. All
 of it was measured through `docker/run.sh`, against kernel commit `073f4353`
 ("perf(amd): schedule skip-softmax MHA prefill from a dynamic work counter").
 
 That commit was later amended to `7daa6f67` to pick up a black reformat of two
 call sites in a test file, so `073f4353` is no longer on the branch. The kernel
-is byte for byte the same, and these numbers apply unchanged to `7daa6f67` and
-to this directory, which lives on that same branch.
+is byte for byte the same, and these numbers apply unchanged to `7daa6f67`.
 
 The raw logs and the per-layer JSON behind every table below are committed in
 `results/`; see `results/README.md` for what each file is and which ones not to

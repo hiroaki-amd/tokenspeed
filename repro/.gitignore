@@ -8,6 +8,7 @@ __pycache__/
 # raw output it was written from rather than taken on trust.
 results/*
 !results/README.md
+!results/verify_reference.log
 !results/sparsity_sweep.log
 !results/sparsity_sweep.json
 !results/ruler_speed_ctx32768.log

@@ -77,8 +77,10 @@ and once with the threshold set, and reports the difference. Skip-softmax is an
 approximation and this is what it costs.
 
 **`scripts/verify_reference.py`** checks the sparsity counter (below) against
-the kernel's observable behaviour. Run this first if a sparsity number looks
-wrong.
+the kernel's observable behaviour. `all.sh` runs it before the three stages, as
+stage 0, and it takes well under a minute. A failure does not stop the run,
+since speed and accuracy never go through the reference, but it exits nonzero
+and says so again at the end: the sparsity columns are then not to be quoted.
 
 ## About the sparsity numbers
 

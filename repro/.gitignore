@@ -11,8 +11,8 @@ results/*
 !results/verify_reference.log
 !results/sparsity_sweep.log
 !results/sparsity_sweep.json
-!results/ruler_speed_ctx32768.log
-!results/ruler_speed_ctx32768.json
+!results/ruler_speed.log
+!results/ruler_speed.json
 !results/ruler_speed_quick.log
 !results/ruler_speed_quick.json
 !results/ruler_accuracy_quick.log

@@ -12,17 +12,17 @@ Every sparsity figure below has been recounted since `e58dcecf` fixed
 row rather than per unanimous block (the pre-`7d742874` rule). Because the
 running max feeds the next block's decision, that error compounded along the
 sequence and undercounted. Stage 1 moved a long way as a result and the table
-below is the recount. Stages 2 and 3 did not move at all, for a reason worth
-knowing: the two rules can only disagree on a block whose vote was not
-unanimous, and at threshold 0.03 the disagreement never grows large enough to
-change a later block's decision. Running both recurrences side by side on the
-same captured RULER activations gave identical counts on every one of 36 layers
-for each of three tasks, so stage 2's numbers are unchanged rather than
-unrecounted. Speed and accuracy never go through the reference at all.
+below is the recount. Stage 2 did not move at all, for a reason worth knowing:
+the two rules can only disagree on a block whose vote was not unanimous, and at
+threshold 0.03 the disagreement never grows large enough to change a later
+block's decision. Running both recurrences side by side on the same captured
+RULER activations gave identical counts on every one of 36 layers for each of
+three tasks, so stage 2's numbers are unchanged rather than unrecounted. Stage 3
+has no sparsity column, and speed and accuracy never go through the reference at
+all.
 
 The raw logs and the per-layer JSON behind every table below are committed in
-`results/`; see `results/README.md` for what each file is and which ones not to
-quote.
+`results/`; see `results/README.md` for what each file is.
 
 ## Stage 1: synthetic sparsity sweep
 

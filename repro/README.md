@@ -30,8 +30,9 @@ there is no separate checkout to point at or fall out of sync with.
   `video` and `render` groups.
 - This repository checked out at the commit you want to measure. The image
   bakes in `tokenspeed-kernel-amd` from the build context, so a kernel change
-  needs a rebuild (`docker/run.sh` does this automatically when the image tag
-  is missing; force it with `docker rmi blasst-repro:rocm7.2` first).
+  needs a rebuild. `docker/run.sh` handles that on its own: the default image
+  tag ends in a hash of the kernel tree, so a changed kernel is a different tag
+  and rebuilds, and an older kernel you go back to still has its image.
 - About 20 GB of disk for the image, plus 16 GB for the Qwen3-8B weights.
 - RULER task data, for the real-activation and accuracy runs, laid out as
   `<RULER_DATA>/ctx_<length>/<task>/validation.jsonl`. The synthetic sweep needs

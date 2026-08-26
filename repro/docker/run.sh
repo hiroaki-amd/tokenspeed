@@ -6,12 +6,14 @@
 #
 # The kernel is baked into the image from this checkout (see ../docker/Dockerfile),
 # so a rebuild is needed after changing tokenspeed-kernel-amd, but not after
-# editing a script under scripts/, which stays bind-mounted.
+# editing a script under scripts/, which stays bind-mounted. The default tag
+# carries a hash of the kernel tree so that rebuild happens on its own: a
+# changed kernel is a different tag, and a stale image cannot silently win.
 #
 # Environment:
 #   RULER_DATA     path to the RULER data directory (required for the RULER runs)
 #   HF_HOME        Hugging Face cache to reuse; defaults to ~/.cache/huggingface
-#   IMAGE          image tag to build/use
+#   IMAGE          image tag to build/use, overriding the kernel-hash default
 #   QUICK          forwarded to scripts/all.sh: smoke test instead of the full sweep
 #   SKIP_ACCURACY  forwarded to scripts/all.sh: skip the accuracy stage
 #   CTX            forwarded to scripts/all.sh: context length override
@@ -26,11 +28,27 @@ set -euo pipefail
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$BUNDLE_DIR/.." && pwd)"
-IMAGE="${IMAGE:-blasst-repro:rocm7.2}"
 HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 
+# Hash the kernel tree into the tag. The Dockerfile's only input from this
+# checkout is tokenspeed-kernel-amd, so its contents fully determine what the
+# image computes; hashing the tree rather than asking git for it means a dirty
+# or uncommitted kernel gets its own tag too. The exclusions mirror
+# ../../.dockerignore, so build artifacts that never enter the image do not
+# churn the tag. Takes well under a second on a tree this size.
+# Paths are relative to the kernel directory, so the same tree hashes the same
+# whatever the clone is called or where it sits.
+kernel_hash() {
+    ( cd "$REPO_ROOT/tokenspeed-kernel-amd" && \
+      find . -type f \
+        ! -name '*.so' ! -name '*.o' ! -name '*.pyc' \
+        ! -path '*/__pycache__/*' ! -path '*/.git/*' ! -path '*.egg-info/*' \
+        -print0 | LC_ALL=C sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12 )
+}
+IMAGE="${IMAGE:-blasst-repro:rocm7.2-k$(kernel_hash)}"
+
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "building $IMAGE (first run only, several minutes)..."
+    echo "building $IMAGE (kernel changed or first run, several minutes)..."
     docker build -t "$IMAGE" -f "$BUNDLE_DIR/docker/Dockerfile" "$REPO_ROOT"
 fi
 

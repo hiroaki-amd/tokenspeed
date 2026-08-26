@@ -24,7 +24,7 @@ BLASST tests each query row of a tile against the running max, then takes a
 block-level decision from those per-row votes. The kernel elides a K/V block
 only when every row of the tile votes to skip it: the exp2 over
 BLOCK_M x BLOCK_N, the row sum, the rescale of the BLOCK_M x HEAD_DIM
-accumulator and the P@V matmul. On any
+accumulator, the P@V matmul and, under ``defer_v_load``, V's HBM load. On any
 block where at least one row dissents, the individual votes are discarded and
 every row takes the ordinary online-softmax update.
 
@@ -42,9 +42,9 @@ Checks (bf16, causal, fixed seed):
   [1] VOTES ARE INERT   at a threshold high enough that a large fraction of
       rows vote to skip but no block is unanimous, the output is bit-identical
       to a threshold too small for any row to vote at all. Covered across GQA
-      ratios, sinks, ``return_lse``, a sliding window and a ragged batch, since
-      the vote sits in code every one of those paths runs. The row rates at
-      these thresholds are measured in
+      ratios, both ``defer_v_load`` settings, sinks, ``return_lse``, a sliding
+      window and a ragged batch, since the vote sits in code every one of those
+      paths runs. The row rates at these thresholds are measured in
       ``_ROW_VOTE_RATES`` below, so this is not a vacuous assertion.
   [2] ELISION FIRES     past that range blocks do go unanimous, the output does
       move, and it stays finite. Without this, [1] would also pass on a kernel
@@ -143,13 +143,15 @@ def _run(q, k, v, seqlens: list[int], threshold: float, **kwargs):
 
 @pytest.mark.parametrize("n_heads,n_kv_heads", _GQA_SHAPES)
 @pytest.mark.parametrize("threshold", _ROW_VOTE_RATES)
+@pytest.mark.parametrize("defer_v_load", [False, True])
 def test_row_votes_alone_change_nothing(
-    n_heads: int, n_kv_heads: int, threshold: float
+    n_heads: int, n_kv_heads: int, threshold: float, defer_v_load: bool
 ) -> None:
     """[1] Rows vote, but a block that is not unanimous must be exact."""
     q, k, v = _qkv(n_heads, n_kv_heads, _SEQLEN)
-    voting = _run(q, k, v, [_SEQLEN], threshold)
-    inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD)
+    kwargs = {"defer_v_load": defer_v_load}
+    voting = _run(q, k, v, [_SEQLEN], threshold, **kwargs)
+    inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD, **kwargs)
     assert torch.isfinite(voting).all()
     assert torch.equal(voting, inert)
 

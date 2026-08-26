@@ -76,7 +76,14 @@ _HEAD_DIM = 128
 _DTYPE = torch.bfloat16
 _NO_REGRESSION_TOL = 5e-3
 _DEGRADATION_BOUND = 0.6
-_THRESHOLDS = [1e-3, 1e-2, 5e-2, 1e-1, 3e-1]
+# The block is elided only when every row of the tile votes to skip it, so the
+# threshold has to reach well past the point where rows start voting before the
+# output moves at all. On these shapes 0.3 already has 31.9% of row-block pairs
+# voting while no block is yet unanimous; 0.7 and 0.9 are where the unanimous
+# rate becomes nonzero (0.2% and 1.2%) and the result begins to degrade. The
+# upper end is not exotic: the BLASST authors' own artifact benchmark sweeps
+# this parameter from 0.5 to 5.0.
+_THRESHOLDS = [1e-3, 1e-2, 5e-2, 1e-1, 3e-1, 0.7, 0.9]
 _TINY_THRESHOLD = 1e-9
 
 

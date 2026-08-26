@@ -71,7 +71,10 @@ _HEAD_DIM = 128
 _DTYPE = torch.bfloat16
 _NO_REGRESSION_TOL = 5e-3
 _DEGRADATION_BOUND = 0.6
-_THRESHOLDS = [1e-3, 1e-2, 5e-2, 1e-1, 3e-1]
+# See the note on the same constant in ``test_mha_prefill_skip_softmax.py``:
+# a block is elided only on a unanimous row vote, so the top of this range has
+# to reach past where rows merely start voting for the output to move at all.
+_THRESHOLDS = [1e-3, 1e-2, 5e-2, 1e-1, 3e-1, 0.7, 0.9]
 _TINY_THRESHOLD = 1e-9
 
 

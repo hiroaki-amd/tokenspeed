@@ -63,7 +63,6 @@ class AttentionConfig:
     NUM_BLOCKS: gl.constexpr
     IS_FP8: gl.constexpr
     ENABLE_SKIP_SOFTMAX: gl.constexpr
-    SKIP_SOFTMAX_UPDATE: gl.constexpr
     DEFER_V_LOAD: gl.constexpr
     DYNAMIC_SCHED: gl.constexpr
     q_strides: InputStrides
@@ -96,7 +95,6 @@ class AttentionConfig:
         WINDOW_LEFT,
         IS_FP8,
         ENABLE_SKIP_SOFTMAX,
-        SKIP_SOFTMAX_UPDATE,
         DEFER_V_LOAD,
         DYNAMIC_SCHED,
         KV_DTYPE,
@@ -142,7 +140,6 @@ class AttentionConfig:
         self.NUM_BLOCKS = gl.constexpr(512)
         self.IS_FP8 = gl.constexpr(IS_FP8)
         self.ENABLE_SKIP_SOFTMAX = gl.constexpr(ENABLE_SKIP_SOFTMAX)
-        self.SKIP_SOFTMAX_UPDATE = gl.constexpr(SKIP_SOFTMAX_UPDATE)
         self.DEFER_V_LOAD = gl.constexpr(DEFER_V_LOAD)
         self.DYNAMIC_SCHED = gl.constexpr(DYNAMIC_SCHED)
         self.q_strides = q_strides
@@ -397,49 +394,47 @@ class AttentionProgram:
         # difference is NaN and the comparison is false, so the row is left
         # for that guard rather than being skipped here.
         # row_max/m_i are raw (pre-SM_SCALE) dot products, so the difference is
-        # scaled to match log2_threshold's units. Zeroing p on skipped rows
-        # keeps partially skipped blocks exact; all_skip reports the all-rows
-        # case so the caller can elide P@V entirely.
+        # scaled to match log2_threshold's units.
+        #
+        # The per-row predicate only decides the vote. A block is skipped only
+        # when every row agrees, and a row's own decision is otherwise
+        # discarded: on a partially skipped block all rows take the normal
+        # update, exactly as if skipping were off. Dropping the dissenting
+        # rows' contribution instead is both less accurate and slower, because
+        # holding a row's running max back makes it less likely to clear the
+        # threshold on later blocks, so the block-level skip rate falls too.
         if cfg.ENABLE_SKIP_SOFTMAX:
             skip = (row_max - m_i) * cfg.SM_SCALE < self.log2_threshold
             all_skip = gl.sum(skip.to(gl.int32), axis=0) == cfg.BLOCK_M
-            m_new = gl.where(skip, m_i, m_new)
+            # Every row skipped, so the running max is unchanged by definition.
+            # Making that explicit is what lets the update below be elided.
+            if all_skip:
+                m_new = m_i
         else:
             all_skip = False
 
-        # When every row skips, the online-softmax update below computes the
-        # identity, so it can be elided outright: that is the compute half of
-        # the BLASST saving (the exp2 over BLOCK_M x BLOCK_N, the row sum, and
-        # the rescale of the BLOCK_M x HEAD_DIM accumulator). m_new is already
-        # m_i on every row, so alpha = exp2(0) = 1 and l_ij = 0, leaving
-        # l_i * 1 + 0 and acc * 1. p itself is dead here, because the caller
-        # elides P@V under the same condition.
+        # When every row skips, the block contributes nothing that the update
+        # below would preserve, so it is elided outright: that is the compute
+        # half of the BLASST saving (the exp2 over BLOCK_M x BLOCK_N, the row
+        # sum, and the rescale of the BLOCK_M x HEAD_DIM accumulator). m_new is
+        # m_i on every row, so alpha = exp2(0) = 1 and acc is unchanged; l_ij
+        # is not zero, but every term in it is below the threshold relative to
+        # the running max, which is exactly the approximation BLASST makes.
+        # p itself is dead here, because the caller elides P@V under the same
+        # condition.
         #
-        # SKIP_SOFTMAX_UPDATE gates this, and the launcher clears it for the
-        # sliding-window kernel the same way it clears DEFER_V_LOAD. The
-        # argument above holds only where a fully skipped block implies every
-        # row's score fell below the threshold against a finite running max.
-        # Causal masking guarantees that, because a tile always has a valid
-        # column. A sliding window does not: once the window has moved past a
-        # tile the tile is masked out entirely, row_max is -inf against a
-        # finite m_i, the difference is -inf, and every row votes to skip
-        # without the update being the identity. Measured there, eliding it
-        # moved 376 of 4M outputs by an ulp. The sliding kernel visits a small
-        # fixed number of tiles and gains almost nothing, so it keeps the
-        # arithmetic rather than being made to reason about that case.
-        #
-        # Being a constexpr, the flag also splits this into two compilations,
-        # and the branch shifts instruction selection around the row sum (57
-        # v_pk_add_f32 against 58). That reassociates the reduction, so the
-        # returned fp32 LSE moves by a few ulp between the two builds even at
-        # a threshold where nothing is skipped. bf16 rounding absorbs it and
-        # the output stays bit-identical; see the test file for the numbers.
+        # The sliding-window kernel reaches this with a second, unrelated case:
+        # once the window has moved past a tile the tile is fully masked, so
+        # row_max is -inf against a finite m_i and every row votes to skip.
+        # Eliding is right there too, and for a stronger reason than the
+        # threshold argument, since a fully masked tile contributes exactly
+        # zero rather than merely something small.
         p = gl.zeros(
             [cfg.BLOCK_M, cfg.BLOCK_N],
             dtype=self.q_ptr.dtype.element_ty,
             layout=cfg.p_layout,
         )
-        if not (cfg.SKIP_SOFTMAX_UPDATE and all_skip):
+        if not all_skip:
             m_new_scaled = m_new * cfg.SM_SCALE
             if HAS_INVALID:
                 invalid = m_new == -float("inf")
@@ -447,8 +442,6 @@ class AttentionProgram:
 
             qk_shifted = qk * cfg.SM_SCALE - m_new_scaled[:, None]
             p_f32 = gl.exp2(qk_shifted)
-            if cfg.ENABLE_SKIP_SOFTMAX:
-                p_f32 = gl.where(skip[:, None], 0.0, p_f32)
             m_diff = m_i * cfg.SM_SCALE - m_new_scaled
             if HAS_INVALID:
                 m_diff = gl.where(invalid, 0.0, m_diff)
@@ -1090,7 +1083,6 @@ def _mha_prefill(
     WINDOW_LEFT: gl.constexpr,
     IS_FP8: gl.constexpr,
     ENABLE_SKIP_SOFTMAX: gl.constexpr,
-    SKIP_SOFTMAX_UPDATE: gl.constexpr,
     DEFER_V_LOAD: gl.constexpr,
     DYNAMIC_SCHED: gl.constexpr,
     log2_threshold,
@@ -1109,7 +1101,6 @@ def _mha_prefill(
         -1,
         IS_FP8,
         ENABLE_SKIP_SOFTMAX,
-        SKIP_SOFTMAX_UPDATE,
         DEFER_V_LOAD,
         DYNAMIC_SCHED,
         k_ptr.dtype.element_ty,
@@ -1191,7 +1182,6 @@ def _mha_prefill_sliding(
     WINDOW_LEFT: gl.constexpr,
     IS_FP8: gl.constexpr,
     ENABLE_SKIP_SOFTMAX: gl.constexpr,
-    SKIP_SOFTMAX_UPDATE: gl.constexpr,
     DEFER_V_LOAD: gl.constexpr,
     DYNAMIC_SCHED: gl.constexpr,
     log2_threshold,
@@ -1210,7 +1200,6 @@ def _mha_prefill_sliding(
         WINDOW_LEFT,
         IS_FP8,
         ENABLE_SKIP_SOFTMAX,
-        SKIP_SOFTMAX_UPDATE,
         DEFER_V_LOAD,
         DYNAMIC_SCHED,
         k_ptr.dtype.element_ty,
@@ -1323,20 +1312,22 @@ def gluon_mha_prefill_gfx950(
     softmax_scale: float | None = None,
     skip_softmax_threshold: float = 0.0,
     defer_v_load: bool = False,
-    skip_softmax_update: bool = True,
 ) -> torch.Tensor | tuple[torch.Tensor, ...]:
     """Causal MHA prefill for gfx950, optionally with skip-softmax sparsity.
 
     Args:
-        skip_softmax_threshold: ratio, not a score. A K/V block's P@V matmul
-            is skipped for a query row when
+        skip_softmax_threshold: ratio, not a score. A query row votes to skip a
+            K/V block when
             ``exp(block_max_score - running_max) < skip_softmax_threshold``,
-            so ``0.03`` drops blocks worth under 3% of that row's running
-            softmax max. ``0.0`` (default) is exact dense attention and is
-            bit-identical to the kernel without this feature. The mapping from
-            threshold to achieved sparsity depends on the score distribution
-            and so shifts with sequence length and with the model; it has to be
-            calibrated per workload. A nonzero value also switches the
+            so ``0.03`` votes against blocks worth under 3% of that row's
+            running softmax max. The block is dropped only when every row of
+            the query tile votes for it; on any other block the votes are
+            discarded and the result is exact. Sparsity therefore begins well
+            above the threshold at which rows start voting, and the achieved
+            rate depends on the score distribution, so it shifts with sequence
+            length and with the model and has to be calibrated per workload.
+            ``0.0`` (default) is exact dense attention and is bit-identical to
+            the kernel without this feature. A nonzero value also switches the
             persistent scheduler to the dynamic work counter, which is what
             makes the sparsity translate into wall-clock time.
         defer_v_load: issue V's HBM->LDS load only for blocks that survive the
@@ -1347,18 +1338,6 @@ def gluon_mha_prefill_gfx950(
             is bit-identical to ``defer_v_load=False``. It has a small fixed
             cost from the changed instruction scheduling, so it only pays off
             once sparsity is high enough, and is therefore opt-in.
-        skip_softmax_update: elide the online-softmax update itself, not just
-            the P@V matmul, on blocks where every row of the tile skips. This
-            is the exp2, the row sum and the accumulator rescale, and it is
-            what makes the feature skip the softmax rather than only its
-            consumer. On by default and meaningful only when
-            ``skip_softmax_threshold`` is nonzero; the launcher clears it for
-            the sliding-window kernel. Exposed to let tests assert that the
-            output is bit-identical to performing the update, which is the
-            property that makes it safe; it is not a tuning knob. The two
-            settings compile to two kernels, so the returned LSE differs by a
-            few ulp from reduction reassociation, independently of how much is
-            actually skipped.
 
     Returns:
         The attention output with the same shape as ``q``, or
@@ -1392,13 +1371,6 @@ def gluon_mha_prefill_gfx950(
     # The sliding kernel ignores DEFER_V_LOAD; normalize it off so it does not
     # compile a second, identical variant.
     defer_v_load = defer_v_load and not is_sliding
-
-    # Eliding the online-softmax update is bit-identical under causal masking
-    # but not under a sliding window, where a tile can be masked out entirely
-    # and every row then votes to skip against a finite running max; see
-    # AttentionProgram.softmax. Normalize it off there, and off when there is
-    # no skipping at all, so neither compiles a redundant variant.
-    skip_softmax_update = skip_softmax_update and enable_skip_softmax and not is_sliding
 
     # Dynamic scheduling exists to rebalance the per-head imbalance that
     # skip-softmax creates, and it costs about 2% when there is no sparsity to
@@ -1454,7 +1426,6 @@ def gluon_mha_prefill_gfx950(
         config.window_left,
         is_fp8,
         enable_skip_softmax,
-        skip_softmax_update,
         defer_v_load,
         dynamic_sched,
         config.log2_threshold,

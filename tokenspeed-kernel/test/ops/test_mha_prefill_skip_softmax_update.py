@@ -18,54 +18,41 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""Correctness test for ``skip_softmax_update`` in the Gluon MHA prefill kernel.
+"""The skip decision is per row, but only a unanimous block changes anything.
 
-When every row of a tile votes to skip a KV block, the online-softmax update
-for that block computes the identity: ``m_new`` is already ``m_i`` on every
-row, so ``alpha = exp2(0) = 1``, and ``p`` is zeroed on every row, so
-``l_ij = 0``, leaving ``l_i * 1 + 0`` and ``acc * 1``. ``skip_softmax_update``
-elides the update outright in that case, which is what removes the exp2 over
-BLOCK_M x BLOCK_N, the row sum, and the rescale of the BLOCK_M x HEAD_DIM
-accumulator. Without it the kernel skips only the consumer of the softmax
-(the P@V matmul and, under ``defer_v_load``, V's load) while still evaluating
-the softmax itself.
+BLASST tests each query row of a tile against the running max, then takes a
+block-level decision from those per-row votes. The kernel elides a K/V block
+only when every row of the tile votes to skip it: the exp2 over
+BLOCK_M x BLOCK_N, the row sum, the rescale of the BLOCK_M x HEAD_DIM
+accumulator, the P@V matmul and, under ``defer_v_load``, V's HBM load. On any
+block where at least one row dissents, the individual votes are discarded and
+every row takes the ordinary online-softmax update.
 
-The bf16 output is bit-identical either way, and that is the contract this
-file pins. The fp32 LSE is not, but not for the reason the elision might
-suggest. ``skip_softmax_update`` is a constexpr, so the two settings compile
-to two kernels, and the branch shifts instruction selection around the row
-sum: one build emits 57 ``v_pk_add_f32``, the other 58. That reassociates the
-reduction tree, which moves ``l_i`` by a few ULP on the rows it touches. The
-divergence is therefore a property of the two builds, not of skipping: it is
-present at a threshold small enough that no block can clear the skip test,
-identical in position and magnitude from 1e-9 up to 1.0, and both builds sit
-the same distance from an fp64 dense reference. Measured worst case over the
-shapes below is 37 ULP, 2.5e-6 relative. The output survives because bf16
-rounding absorbs it.
+That last part is the contract this file pins, and it is the one that is easy
+to get wrong. Dropping a dissenting block's contribution for the rows that did
+vote to skip is the obvious reading of the paper's Algorithm 1, and it is both
+less accurate and slower: holding a row's running max back makes that row less
+likely to clear the threshold on later blocks, so the block-level skip rate
+falls as well. The BLASST authors' own Hopper kernel does not do it either
+(TensorRT-LLM ``cpp/kernels/fmha_v2/src/fmha/warpspec/epilogue.h``: when the
+warpgroup vote fails, the exp loop runs over every row and the per-row bits are
+dropped).
 
-Under a sliding window the elision genuinely is not safe, which is a separate
-matter: a tile the window has moved past is masked out entirely, ``row_max``
-is -inf against a finite ``m_i``, the difference is -inf, and every row votes
-to skip against a running max that is not theirs. The launcher clears the flag
-there, and [3] pins that down rather than leaving it to be rediscovered.
+Checks (bf16, causal, fixed seed):
+  [1] VOTES ARE INERT   at a threshold high enough that a large fraction of
+      rows vote to skip but no block is unanimous, the output is bit-identical
+      to a threshold too small for any row to vote at all. Covered across GQA
+      ratios, both ``defer_v_load`` settings, sinks, ``return_lse``, a sliding
+      window and a ragged batch, since the vote sits in code every one of those
+      paths runs. The row rates at these thresholds are measured in
+      ``_ROW_VOTE_RATES`` below, so this is not a vacuous assertion.
+  [2] ELISION FIRES     past that range blocks do go unanimous, the output does
+      move, and it stays finite. Without this, [1] would also pass on a kernel
+      that never skipped anything.
+  [3] NO REGRESSION     with skipping off, the result still matches dense SDPA.
 
-  [1] EQUIVALENCE  output is bit-identical to ``skip_softmax_update=False`` at
-      every threshold, which is what makes the elision safe. Covered across
-      GQA ratios, both ``defer_v_load`` settings, sinks, ``return_lse`` and a
-      ragged batch, since the elision sits in code every one of those paths
-      runs.
-  [2] LSE          the returned LSE agrees to the reassociation tolerance, and
-      the same tolerance holds at a threshold too small to skip anything. The
-      second half is the load-bearing one: it shows the gap is the build
-      difference described above and not error the elision introduces.
-  [3] SLIDING      the flag is forced off for the sliding-window kernel, so
-      requesting it must not change that kernel's output.
-  [4] NO-SKIP      with skipping off, or at a threshold too small to fire, the
-      flag is inert and the result still matches dense SDPA.
-
-[1] only constrains the elision against performing the update; a defect in
-the shared skip decision moves both arms together and cancels. The dense
-comparisons in ``test_mha_prefill_skip_softmax.py`` are what cover that.
+[1] and [2] constrain the block-level rule only. How far the elided output may
+drift from dense is covered by ``test_mha_prefill_skip_softmax.py``.
 """
 
 from __future__ import annotations
@@ -89,17 +76,26 @@ _SEQLEN = 4096
 _HEAD_DIM = 128
 _DTYPE = torch.bfloat16
 _NO_REGRESSION_TOL = 5e-3
-# The two constexpr settings compile to two kernels whose row-sum reduction
-# trees are associated differently, so the fp32 LSE they return differs by a
-# few ULP. Measured worst case over the shapes here is 2.5e-6 relative; this
-# is an order above that and still far below anything the LSE feeds.
-_LSE_REASSOC_TOL = 2e-5
-# Small enough that no block clears the skip test at these score
-# distributions, so the flag has nothing to elide.
+# Small enough that no row clears the skip test at these score distributions,
+# so nothing votes and nothing is elided. This is the baseline [1] compares
+# against: it compiles the same ENABLE_SKIP_SOFTMAX=True kernel, so any
+# difference from it is the skipping and not a build difference.
 _TINY_THRESHOLD = 1e-9
-# 0.3 is past 1.0 in log2 space for some rows, so it drives sparsity high
-# enough that all_skip fires on a large fraction of blocks.
-_THRESHOLDS = [1e-3, 1e-2, 1e-1, 0.3]
+# Thresholds where rows vote in quantity but no block goes unanimous, measured
+# on the shapes below at seed 0. Per-row vote rate against unanimous-block rate
+# at 8 Q-heads / 2 KV-heads, seqlen 4096:
+#
+#   0.001    0.00% rows   0.000% blocks
+#   0.01     0.00% rows   0.000% blocks
+#   0.1      1.03% rows   0.000% blocks
+#   0.3     31.90% rows   0.000% blocks
+#
+# 0.3 is the load-bearing one: nearly a third of row-block pairs vote to skip
+# there and the output must still not move by a bit.
+_ROW_VOTE_RATES = [1e-3, 1e-2, 1e-1, 0.3]
+# Past the vote-only range: blocks do go unanimous here (1.16% at 0.9 on the
+# shape above), so the output is expected to move.
+_ELIDING_THRESHOLDS = [0.7, 0.9]
 _GQA_SHAPES = [(8, 8), (8, 2)]
 
 
@@ -146,90 +142,87 @@ def _run(q, k, v, seqlens: list[int], threshold: float, **kwargs):
 
 
 @pytest.mark.parametrize("n_heads,n_kv_heads", _GQA_SHAPES)
-@pytest.mark.parametrize("threshold", _THRESHOLDS)
+@pytest.mark.parametrize("threshold", _ROW_VOTE_RATES)
 @pytest.mark.parametrize("defer_v_load", [False, True])
-def test_update_elision_is_bit_identical(
+def test_row_votes_alone_change_nothing(
     n_heads: int, n_kv_heads: int, threshold: float, defer_v_load: bool
 ) -> None:
-    """[1] Eliding an identity update must not change a single bit."""
+    """[1] Rows vote, but a block that is not unanimous must be exact."""
     q, k, v = _qkv(n_heads, n_kv_heads, _SEQLEN)
     kwargs = {"defer_v_load": defer_v_load}
-    elided = _run(q, k, v, [_SEQLEN], threshold, skip_softmax_update=True, **kwargs)
-    computed = _run(q, k, v, [_SEQLEN], threshold, skip_softmax_update=False, **kwargs)
-    assert torch.isfinite(elided).all()
-    assert torch.equal(elided, computed)
+    voting = _run(q, k, v, [_SEQLEN], threshold, **kwargs)
+    inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD, **kwargs)
+    assert torch.isfinite(voting).all()
+    assert torch.equal(voting, inert)
 
 
-@pytest.mark.parametrize("threshold", [_TINY_THRESHOLD] + _THRESHOLDS)
-def test_update_elision_preserves_lse(threshold: float) -> None:
-    """[2] l_i is what the elision touches, so check it directly.
-
-    ``_TINY_THRESHOLD`` is in the parameter list on purpose. No block can
-    clear the skip test there, so nothing is elided, and the LSE gap that
-    remains is the reduction reassociation between the two builds rather than
-    anything the elision did. Whatever tolerance this case needs is the
-    tolerance the skipping cases are entitled to.
-    """
+@pytest.mark.parametrize("threshold", _ROW_VOTE_RATES)
+def test_row_votes_alone_preserve_lse(threshold: float) -> None:
+    """[1] l_i and m_i are what a mishandled vote would corrupt first."""
     q, k, v = _qkv(8, 2, _SEQLEN)
-    o_elided, lse_elided = _run(
-        q, k, v, [_SEQLEN], threshold, skip_softmax_update=True, return_lse=True
-    )
-    o_computed, lse_computed = _run(
-        q, k, v, [_SEQLEN], threshold, skip_softmax_update=False, return_lse=True
-    )
-    assert torch.isfinite(lse_elided).all()
-    assert torch.equal(o_elided, o_computed)
-    rel = (lse_elided - lse_computed).abs() / lse_computed.abs().clamp_min(1e-6)
-    assert rel.max().item() < _LSE_REASSOC_TOL
+    o_voting, lse_voting = _run(q, k, v, [_SEQLEN], threshold, return_lse=True)
+    o_inert, lse_inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD, return_lse=True)
+    assert torch.isfinite(lse_voting).all()
+    assert torch.equal(o_voting, o_inert)
+    assert torch.equal(lse_voting, lse_inert)
 
 
-@pytest.mark.parametrize("threshold", _THRESHOLDS)
-def test_update_elision_with_sinks(threshold: float) -> None:
-    """[1] Sinks change the m_i initialization, which the skip test reads."""
+@pytest.mark.parametrize("threshold", _ROW_VOTE_RATES)
+def test_row_votes_alone_with_sinks(threshold: float) -> None:
+    """[1] Sinks change the m_i initialization, which the vote reads."""
     q, k, v = _qkv(8, 2, _SEQLEN)
     sinks = torch.randn((8,), device="cuda", dtype=torch.float32)
-    elided = _run(q, k, v, [_SEQLEN], threshold, sinks=sinks, skip_softmax_update=True)
-    computed = _run(
-        q, k, v, [_SEQLEN], threshold, sinks=sinks, skip_softmax_update=False
-    )
-    assert torch.isfinite(elided).all()
-    assert torch.equal(elided, computed)
+    voting = _run(q, k, v, [_SEQLEN], threshold, sinks=sinks)
+    inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD, sinks=sinks)
+    assert torch.isfinite(voting).all()
+    assert torch.equal(voting, inert)
 
 
-@pytest.mark.parametrize("threshold", _THRESHOLDS)
-def test_update_elision_ragged_batch(threshold: float) -> None:
-    """[1] Includes a sequence shorter than BLOCK_M, which takes its own path."""
-    seqlens = [1024, 64, 2048, 512]
-    q, k, v = _qkv(8, 2, sum(seqlens))
-    elided = _run(q, k, v, seqlens, threshold, skip_softmax_update=True)
-    computed = _run(q, k, v, seqlens, threshold, skip_softmax_update=False)
-    assert torch.isfinite(elided).all()
-    assert torch.equal(elided, computed)
+@pytest.mark.parametrize("threshold", _ROW_VOTE_RATES)
+def test_row_votes_alone_sliding_window(threshold: float) -> None:
+    """[1] The sliding kernel is the HAS_INVALID variant and votes separately.
 
-
-@pytest.mark.parametrize("threshold", _THRESHOLDS)
-def test_sliding_window_ignores_the_flag(threshold: float) -> None:
-    """[3] The launcher forces the flag off here; asking for it changes nothing.
-
-    Not a free assertion: eliding the update on the sliding kernel does move
-    results, because a tile the window has moved past is masked out entirely
-    and every row then votes to skip against a finite running max. The flag
-    is cleared for that reason, and this pins the clearing down.
+    It also reaches the unanimous case for a reason unrelated to the
+    threshold: a tile the window has moved past is masked out entirely, so
+    every row's max is -inf and every row votes. Eliding is right there, since
+    such a tile contributes exactly zero, and this pins that it stays exact.
     """
     q, k, v = _qkv(8, 8, _SEQLEN)
-    on = _run(q, k, v, [_SEQLEN], threshold, window_left=256, skip_softmax_update=True)
-    off = _run(
-        q, k, v, [_SEQLEN], threshold, window_left=256, skip_softmax_update=False
-    )
-    assert torch.isfinite(on).all()
-    assert torch.equal(on, off)
+    voting = _run(q, k, v, [_SEQLEN], threshold, window_left=256)
+    inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD, window_left=256)
+    assert torch.isfinite(voting).all()
+    assert torch.equal(voting, inert)
+
+
+@pytest.mark.parametrize("threshold", _ROW_VOTE_RATES)
+def test_row_votes_alone_ragged_batch(threshold: float) -> None:
+    """[1] Includes a sequence shorter than BLOCK_M, which takes its own path."""
+    seqlens = [1024, 64, 2048, 512]
+    q, k, v = _qkv(8, 2, sum(seqlens), seed=1)
+    voting = _run(q, k, v, seqlens, threshold)
+    inert = _run(q, k, v, seqlens, _TINY_THRESHOLD)
+    assert torch.isfinite(voting).all()
+    assert torch.equal(voting, inert)
+
+
+@pytest.mark.parametrize("threshold", _ELIDING_THRESHOLDS)
+def test_elision_actually_fires(threshold: float) -> None:
+    """[2] Blocks do go unanimous past the vote-only range, and the output moves.
+
+    Guards against the tests above passing on a kernel that skips nothing at
+    all: without this, "bit-identical" would be trivially satisfied.
+    """
+    q, k, v = _qkv(8, 2, _SEQLEN)
+    elided = _run(q, k, v, [_SEQLEN], threshold)
+    inert = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD)
+    assert torch.isfinite(elided).all()
+    assert not torch.equal(elided, inert)
 
 
 @pytest.mark.parametrize("threshold", [0.0, _TINY_THRESHOLD])
-@pytest.mark.parametrize("skip_softmax_update", [False, True])
-def test_inert_without_skipping(threshold: float, skip_softmax_update: bool) -> None:
-    """[4] With nothing to elide, the flag must not perturb a dense result."""
+def test_inert_without_skipping(threshold: float) -> None:
+    """[3] With nothing to vote or elide, the result still matches dense."""
     q, k, v = _qkv(8, 2, _SEQLEN)
-    out = _run(q, k, v, [_SEQLEN], threshold, skip_softmax_update=skip_softmax_update)
+    out = _run(q, k, v, [_SEQLEN], threshold)
     assert torch.isfinite(out).all()
     assert _rel_err(out, _dense_ref(q, k, v)) < _NO_REGRESSION_TOL

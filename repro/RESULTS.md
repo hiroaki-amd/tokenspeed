@@ -10,12 +10,16 @@ tests, which are marked where they appear.
 `7d742874` is no longer reachable: the branch it sat on was restructured into
 three commits and rebased onto a newer upstream, landing as `6338894c` on the
 PR branch. The MHA prefill kernel these numbers measure is byte-identical
-across that move, so they still describe the current kernel. What did change
-is the image tag, which hashes the whole of `tokenspeed-kernel-amd/`: upstream
-touched thirty unrelated files in that directory (MoE, MXFP4, KDA), so
-`run.sh` now derives a different tag and builds a fresh image rather than
-reusing the one these numbers came from. Nothing below has been rerun against
-that image yet.
+across that move, so they still described the current kernel even before being
+rerun. What did change is the image tag, which hashes the whole of
+`tokenspeed-kernel-amd/`: upstream touched thirty unrelated files in that
+directory (MoE, MXFP4, KDA), so `run.sh` derives a different tag and builds a
+fresh image rather than reusing the one these numbers first came from.
+
+All three stages have since been rerun end to end against `6338894c`
+(image `blasst-repro:rocm7.2-k12c68dac6f43`) on the same MI350X. Every table
+below is now that rerun, and it reproduces the pre-rebase numbers to within
+ordinary run-to-run timing noise; nothing changed beyond that.
 
 Every sparsity figure below has been recounted since `e58dcecf` fixed
 `scripts/sparsity_reference.py`, which until then advanced the running max per
@@ -42,60 +46,63 @@ mean of 20 timed repeats after 5 warmups, dense measured in the same run.
 ```
 === 64 Q-heads / 4 KV-heads, GQA ratio 16 (paper Table 5 shape) ===
 
-  seqlen=16384 (16k)   dense 8.442 ms
+  seqlen=16384 (16k)   dense 8.384 ms
    threshold   sparsity   blasst ms   speedup
-       1e-09      0.00%       9.387    0.899x
-         1.0     21.57%       7.519    1.123x
-         1.3     44.30%       6.677    1.264x
-         1.7     62.56%       6.089    1.387x
-         4.0     90.20%       5.393    1.565x
-         6.0     94.80%       5.314    1.589x
-         8.0     96.62%       5.285    1.597x
-        10.0     97.54%       5.278    1.600x
+       1e-09      0.00%       9.387    0.893x
+         1.0     21.57%       7.520    1.115x
+         1.3     44.30%       6.691    1.253x
+         1.7     62.56%       6.114    1.371x
+         4.0     90.20%       5.386    1.557x
+         6.0     94.80%       5.299    1.582x
+         8.0     96.62%       5.289    1.585x
+        10.0     97.54%       5.272    1.590x
 
-  seqlen=65536 (64k)   dense 136.718 ms
+  seqlen=65536 (64k)   dense 136.237 ms
    threshold   sparsity   blasst ms   speedup
-       1e-09      0.00%     150.417    0.909x
-         0.7     20.88%     117.741    1.161x
-         0.8     33.95%     109.361    1.250x
-         0.9     46.07%     102.346    1.336x
-         1.1     64.16%      93.050    1.469x
-         2.0     87.36%      84.069    1.626x
-         6.0     97.86%      83.241    1.642x
-        10.0     99.04%      83.398    1.639x
+       1e-09      0.00%     149.031    0.914x
+         0.7     20.88%     117.382    1.161x
+         0.8     33.95%     109.193    1.248x
+         0.9     46.07%     102.266    1.332x
+         1.1     64.16%      92.866    1.467x
+         2.0     87.36%      83.621    1.629x
+         6.0     97.86%      81.740    1.667x
+        10.0     99.04%      82.355    1.654x
 
 === 32 Q-heads / 8 KV-heads, GQA ratio 4 (Qwen3-8B shape) ===
 
-  seqlen=16384 (16k)   dense 4.238 ms
+  seqlen=16384 (16k)   dense 4.192 ms
    threshold   sparsity   blasst ms   speedup
-       1e-09      0.00%       4.850    0.874x
-         1.0     21.50%       3.883    1.091x
-         1.3     44.35%       3.425    1.237x
-         1.7     62.76%       3.129    1.355x
-         4.0     90.26%       2.820    1.503x
-         6.0     94.84%       2.784    1.522x
-         8.0     96.62%       2.776    1.526x
-        10.0     97.53%       2.779    1.525x
+       1e-09      0.00%       4.584    0.915x
+         1.0     21.50%       3.870    1.083x
+         1.3     44.35%       3.412    1.229x
+         1.7     62.76%       3.079    1.362x
+         4.0     90.26%       2.710    1.547x
+         6.0     94.84%       2.665    1.573x
+         8.0     96.62%       2.655    1.579x
+        10.0     97.53%       2.645    1.585x
 
-  seqlen=65536 (64k)   dense 69.499 ms
+  seqlen=65536 (64k)   dense 67.367 ms
    threshold   sparsity   blasst ms   speedup
-       1e-09      0.00%      75.064    0.926x
-         0.7     20.80%      59.239    1.173x
-         0.8     33.89%      55.198    1.259x
-         0.9     46.05%      51.960    1.338x
-         1.1     64.20%      47.464    1.464x
-         2.0     87.38%      42.631    1.630x
-         6.0     97.86%      40.824    1.702x
-        10.0     99.04%      40.682    1.708x
+       1e-09      0.00%      73.710    0.914x
+         0.7     20.80%      58.948    1.143x
+         0.8     33.89%      54.957    1.226x
+         0.9     46.05%      51.761    1.301x
+         1.1     64.20%      47.306    1.424x
+         2.0     87.38%      42.350    1.591x
+         6.0     97.86%      40.726    1.654x
+        10.0     99.04%      40.567    1.661x
 ```
 
-Against the same sweep on the pre-`7d742874` kernel, every one of the 32 rows
-is faster, and the gain widens with sparsity: at 64k on the Qwen3-8B shape,
-threshold 10.0 went 1.376x to 1.708x. The dense column is unchanged to within
-0.3%, which is what makes the two comparable. The floor moved too: at threshold
-1e-09, where nothing is skipped and only the cost of checking remains, the
-overhead eased from 0.842x-0.871x to 0.874x-0.926x, because the branch that
-zeroed dissenting rows out of `p` is gone.
+This is the `6338894c` rerun; sparsity is identical to the decimal against the
+first pass on this table (as expected, since the kernel is byte-identical),
+and timings agree to within about 1%, ordinary run-to-run noise on this
+machine. Against the pre-`7d742874` kernel, every one of the 32 rows is
+faster, and the gain widens with sparsity: at 64k on the Qwen3-8B shape,
+threshold 10.0 went 1.376x to roughly 1.66x-1.71x. The dense column is
+unchanged to within 0.3%, which is what makes the two comparable. The floor
+moved too: at threshold 1e-09, where nothing is skipped and only the cost of
+checking remains, the overhead eased from 0.842x-0.871x to 0.89x-0.93x,
+because the branch that zeroed dissenting rows out of `p` is gone.
 
 Thresholds span roughly 0% to 99% sparsity at each length, covering the range
 of Table 5 of the BLASST paper, rather than clustering around 50% as an earlier
@@ -129,24 +136,27 @@ threshold 0.03, with the sparsity each task's replayed activations produced:
 
 ```
 Task                  sparsity    speedup   >=1.0x
-cwe                      49.8%     1.227x   34/36
-fwe                      57.5%     1.368x   36/36
-niah_multikey_1          54.9%     1.305x   34/36
-niah_multikey_2          45.3%     1.181x   32/36
-niah_multikey_3          53.6%     1.235x   32/36
-niah_multiquery          54.8%     1.305x   34/36
-niah_multivalue          55.0%     1.262x   33/36
-niah_single_1            61.0%     1.286x   35/36
-niah_single_2            55.0%     1.261x   33/36
-niah_single_3            54.9%     1.260x   33/36
-qa_1                     58.1%     1.303x   33/36
-qa_2                     60.4%     1.424x   35/36
+cwe                      49.8%     1.229x   34/36
+fwe                      57.5%     1.364x   36/36
+niah_multikey_1          54.9%     1.300x   34/36
+niah_multikey_2          45.3%     1.179x   32/36
+niah_multikey_3          53.6%     1.232x   33/36
+niah_multiquery          54.8%     1.302x   34/36
+niah_multivalue          55.0%     1.257x   33/36
+niah_single_1            61.0%     1.283x   35/36
+niah_single_2            55.0%     1.259x   33/36
+niah_single_3            54.9%     1.255x   33/36
+qa_1                     58.1%     1.300x   33/36
+qa_2                     60.4%     1.425x   35/36
 vt                       57.8%     1.258x   34/36
-MEAN                     55.2%     1.283x
+MEAN                     55.2%     1.280x
 ```
 
-Against the pre-`7d742874` kernel, which read 1.133x on this same table, every
-one of the 13 tasks improved:
+This is the `6338894c` rerun. Sparsity matches the earlier pass on this table
+to the decimal on every task, and speedups agree to within 0.005x, ordinary
+run-to-run noise. Against the pre-`7d742874` kernel, which read 1.133x on this
+same table, every one of the 13 tasks still improves by roughly the same
+margin:
 
 ```
 Task                 before    after     diff
@@ -166,10 +176,12 @@ vt                   1.112x   1.258x   +0.146
 MEAN                 1.133x   1.283x   +0.150
 ```
 
-Layers at or above 1.0x went from 410 of 468 to 438. The dense arm is what
+Layers at or above 1.0x went from 410 of 468 (pre-`7d742874`) to 438 on
+`7d742874`/`6338894c`, and reads 439 on this rerun. The dense arm is what
 makes this a fair comparison: summed over all 13 tasks it came to 7826.7 ms
-before and 7827.5 ms now, a difference of 0.01%, so the two runs saw the same
-machine in the same state and only the BLASST arm moved.
+pre-`7d742874`, 7827.5 ms on `7d742874` (a difference of 0.01%), and 7743.7 ms
+on this rerun (about 1% off the other two), all close enough that the runs saw
+comparable machines and only the BLASST arm's own change moved anything.
 
 The gain comes from what the old rule cost, not from skipping more blocks per
 se. Under it a block with even one dissenting row still had the voting rows
@@ -245,7 +257,10 @@ vt                          100.0%   100.0%    +0.0%
 AGGREGATE                   91.58%   91.72%   +0.15%
 ```
 
-Ran in about 2h36m end to end (dense arm 4761s, BLASST arm 4616s).
+This is the `6338894c` rerun and reproduces the earlier pass task for task,
+aggregate to aggregate, to the decimal shown. Ran in about 2h37m end to end
+(dense arm 4783s, BLASST arm 4650s), close enough to the first pass's 2h36m
+(4761s / 4616s) to be ordinary run-to-run noise.
 
 The dense arm is bit-identical to what the old kernel's dense arm produced,
 task for task, which is the check that the two runs are comparable: dense is

@@ -1,18 +1,18 @@
 Loading Qwen/Qwen3-8B...
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
 `torch_dtype` is deprecated! Use `dtype` instead!
-  cwe: sparsity 49.8%, speedup 1.227x (34/36 layers >= 1.0x)
-  fwe: sparsity 57.5%, speedup 1.368x (36/36 layers >= 1.0x)
-  niah_multikey_1: sparsity 54.9%, speedup 1.305x (34/36 layers >= 1.0x)
-  niah_multikey_2: sparsity 45.3%, speedup 1.181x (32/36 layers >= 1.0x)
-  niah_multikey_3: sparsity 53.6%, speedup 1.235x (32/36 layers >= 1.0x)
-  niah_multiquery: sparsity 54.8%, speedup 1.305x (34/36 layers >= 1.0x)
-  niah_multivalue: sparsity 55.0%, speedup 1.262x (33/36 layers >= 1.0x)
-  niah_single_1: sparsity 61.0%, speedup 1.286x (35/36 layers >= 1.0x)
-  niah_single_2: sparsity 55.0%, speedup 1.261x (33/36 layers >= 1.0x)
-  niah_single_3: sparsity 54.9%, speedup 1.260x (33/36 layers >= 1.0x)
-  qa_1: sparsity 58.1%, speedup 1.303x (33/36 layers >= 1.0x)
-  qa_2: sparsity 60.4%, speedup 1.424x (35/36 layers >= 1.0x)
+  cwe: sparsity 49.8%, speedup 1.229x (34/36 layers >= 1.0x)
+  fwe: sparsity 57.5%, speedup 1.364x (36/36 layers >= 1.0x)
+  niah_multikey_1: sparsity 54.9%, speedup 1.300x (34/36 layers >= 1.0x)
+  niah_multikey_2: sparsity 45.3%, speedup 1.179x (32/36 layers >= 1.0x)
+  niah_multikey_3: sparsity 53.6%, speedup 1.232x (33/36 layers >= 1.0x)
+  niah_multiquery: sparsity 54.8%, speedup 1.302x (34/36 layers >= 1.0x)
+  niah_multivalue: sparsity 55.0%, speedup 1.257x (33/36 layers >= 1.0x)
+  niah_single_1: sparsity 61.0%, speedup 1.283x (35/36 layers >= 1.0x)
+  niah_single_2: sparsity 55.0%, speedup 1.259x (33/36 layers >= 1.0x)
+  niah_single_3: sparsity 54.9%, speedup 1.255x (33/36 layers >= 1.0x)
+  qa_1: sparsity 58.1%, speedup 1.300x (33/36 layers >= 1.0x)
+  qa_2: sparsity 60.4%, speedup 1.425x (35/36 layers >= 1.0x)
   vt: sparsity 57.8%, speedup 1.258x (34/36 layers >= 1.0x)
 
 ==============================================================================
@@ -20,21 +20,21 @@ PER-LAYER SPEEDUP on real activations: ctx=32768, threshold=0.03
 ==============================================================================
 Task                  sparsity    speedup   >=1.0x
 --------------------------------------------------
-cwe                      49.8%     1.227x   34/36 
-fwe                      57.5%     1.368x   36/36 
-niah_multikey_1          54.9%     1.305x   34/36 
-niah_multikey_2          45.3%     1.181x   32/36 
-niah_multikey_3          53.6%     1.235x   32/36 
-niah_multiquery          54.8%     1.305x   34/36 
-niah_multivalue          55.0%     1.262x   33/36 
-niah_single_1            61.0%     1.286x   35/36 
-niah_single_2            55.0%     1.261x   33/36 
-niah_single_3            54.9%     1.260x   33/36 
-qa_1                     58.1%     1.303x   33/36 
-qa_2                     60.4%     1.424x   35/36 
+cwe                      49.8%     1.229x   34/36 
+fwe                      57.5%     1.364x   36/36 
+niah_multikey_1          54.9%     1.300x   34/36 
+niah_multikey_2          45.3%     1.179x   32/36 
+niah_multikey_3          53.6%     1.232x   33/36 
+niah_multiquery          54.8%     1.302x   34/36 
+niah_multivalue          55.0%     1.257x   33/36 
+niah_single_1            61.0%     1.283x   35/36 
+niah_single_2            55.0%     1.259x   33/36 
+niah_single_3            54.9%     1.255x   33/36 
+qa_1                     58.1%     1.300x   33/36 
+qa_2                     60.4%     1.425x   35/36 
 vt                       57.8%     1.258x   34/36 
 --------------------------------------------------
-MEAN                     55.2%     1.283x
+MEAN                     55.2%     1.280x
 
 Speedups are per task: layer times summed, then divided. MEAN is the mean over tasks of that.
 Averaging the per-layer ratios instead reads about 0.01x higher; both are in the JSON.

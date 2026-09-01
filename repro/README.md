@@ -38,6 +38,37 @@ there is no separate checkout to point at or fall out of sync with.
   `<RULER_DATA>/ctx_<length>/<task>/validation.jsonl`. The synthetic sweep needs
   neither RULER nor a model and is the fastest way to see something work.
 
+## Getting RULER task data
+
+This is the public [NVIDIA RULER](https://github.com/NVIDIA/RULER) benchmark,
+not anything specific to this repo, so it is generated rather than checked in.
+From the RULER checkout, `scripts/data/prepare.py` builds one task at a time:
+
+```
+git clone https://github.com/NVIDIA/RULER
+cd RULER/scripts/data
+
+for CTX in 4096 8192 16384 32768; do
+    for TASK in niah_single_1 niah_single_2 niah_single_3 \
+                niah_multikey_1 niah_multikey_2 niah_multikey_3 \
+                niah_multivalue niah_multiquery vt cwe fwe qa_1 qa_2; do
+        python prepare.py \
+            --save_dir /path/to/ruler/ctx_${CTX} \
+            --benchmark synthetic \
+            --task ${TASK} \
+            --tokenizer_path Qwen/Qwen3-8B \
+            --tokenizer_type hf \
+            --max_seq_length ${CTX} \
+            --num_samples 50 \
+            --model_template_type base
+    done
+done
+```
+
+Point `RULER_DATA` at `/path/to/ruler` afterwards. Only ctx 32768 is needed for
+the accuracy stage; the speed stage and calibration use all four lengths. This
+takes about 40 minutes on CPU and needs no GPU.
+
 ## Running it
 
 From the repository root:

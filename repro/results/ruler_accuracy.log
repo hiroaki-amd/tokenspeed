@@ -33,7 +33,7 @@ The attention mask is not set and cannot be inferred from input because pad toke
   [550/650] running avg: 94.4%
   [600/650] running avg: 90.9%
   [650/650] running avg: 91.6%
-Dense aggregate accuracy: 91.58% (4761s)
+Dense aggregate accuracy: 91.58% (4783s)
 Per-task:
   cwe: 83.0%
   fwe: 94.0%
@@ -63,7 +63,7 @@ Per-task:
   [550/650] running avg: 94.4%
   [600/650] running avg: 91.0%
   [650/650] running avg: 91.7%
-BLASST aggregate accuracy: 91.72% (4616s)
+BLASST aggregate accuracy: 91.72% (4650s)
 Per-task:
   cwe: 82.4%
   fwe: 92.0%

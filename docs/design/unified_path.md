@@ -82,6 +82,13 @@ never captured (above-ladder decode, enforce-eager) builds its views lazily
 on first refresh — no new storage, one-time cost. Views must be
 pointer-stable: a captured graph holds their addresses forever.
 
+Helpers that memoize tensors created inside capture must not return those
+tensors to eager callers. Keeping a Python reference preserves the allocation,
+but an earlier graph sharing the same private pool can overwrite its contents
+on replay. PLE's uniform index bundles are reused during capture only; eager
+prefill and decode construct their indices through the same builder outside
+the capture pool.
+
 ### `for_graph_replay` is for graph-mechanics asymmetries only
 
 `for_graph_replay=True` means a graph is in play — live replay AND the base
@@ -293,11 +300,13 @@ share: V4's write-slot mappings (`DeepseekV4AttentionBackend.slot_mappings`:
 SWA, compressor state / compressed per ratio, indexer state) and the sparse
 indexer's selection (`AttentionBackend.sparse_topk`, a `SparseTopKShare`:
 GLM DSA's `"shared"` layers and the DSA / QSA MTP heads reuse the last
-indexer layer's top-k). Every runner-facing node clears both when it builds
-a forward's metadata (the router's extend init / decode refresh / capture
-seeding, V4's three slot publishers), so the first layer computes, the rest
-reuse, and nothing outlives its forward; the drafter's in-loop seq_lens
-edits are not a new forward and leave the share alone — the drafter itself
+indexer layer's top-k; QSA also keeps its layer-invariant row geometry in
+that share so the fused preparation runs once per forward). Every
+runner-facing node clears both when it builds a forward's metadata (the router's
+extend init / decode refresh / capture seeding, V4's three slot publishers), so
+the first layer computes, the rest reuse, and nothing outlives its forward; the
+drafter's in-loop seq_lens edits are not a new forward and leave the share
+alone — the drafter itself
 hands each draft step the top-k it reuses (or clears it) through the draft
 backend, and starts from the target backend's. `ForwardContext` carries
 none of this. What unification still can NOT test: mempool reuse and

@@ -41,7 +41,6 @@ from tokenspeed.runtime.execution.context import ForwardContext
 from tokenspeed.runtime.layers.attention.backends.specific.qwen4_exp import (
     bind_qwen4_exp_side_state,
 )
-from tokenspeed.runtime.layers.attention.kv_cache.recipes.spec import FULL_ATTENTION
 from tokenspeed.runtime.layers.attention.linear.layernorm_gated import rmsnorm_fn
 from tokenspeed.runtime.layers.hyperconnection import (
     GatedResidualSimple,
@@ -411,7 +410,6 @@ class Qwen4ExpAttentionDecoderLayer(
             self.scaling,
             num_kv_heads=self.num_kv_heads,
             layer_id=layer_id,
-            group_id=FULL_ATTENTION,
         )
         self.mlp, self.is_moe = _build_qwen4_exp_mlp(
             config,
@@ -437,7 +435,6 @@ class Qwen4ExpAttentionDecoderLayer(
 
             self.indexer = QSAIndexer(
                 config=config,
-                mapping=mapping,
                 layer_id=layer_id,
                 quant_config=quant_config,
                 prefix=add_prefix("indexer", prefix),
@@ -453,7 +450,7 @@ class Qwen4ExpAttentionDecoderLayer(
     ) -> torch.Tensor:
         q, k, v, gate = self._project_qkv_rope(positions, hidden_states)
         if self.indexer is not None:
-            topk_indices = self.indexer(hidden_states, positions, ctx)
+            selected_slots = self.indexer(hidden_states, positions, ctx)
             attention_output = self._qsa_attention(
                 q=q,
                 k=k,
@@ -465,7 +462,7 @@ class Qwen4ExpAttentionDecoderLayer(
                 out_cache_loc=ctx.attn_backend.write_locations(
                     self.attn, ctx.forward_mode
                 ),
-                topk_indices=topk_indices,
+                selected_slots=selected_slots,
             )
         else:
             attention_output = self._attn(q, k, v, gate, ctx)

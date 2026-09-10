@@ -249,6 +249,9 @@ class ServerArgs:
     attention_backend: str | None = None
     kda_backend: str = "auto"
     drafter_attention_backend: str | None = None
+    # BLASST skip-softmax sparsity, gluon MHA prefill only (gfx950). 0.0
+    # (default) is exact dense attention; see --skip-softmax-threshold help.
+    skip_softmax_threshold: float = 0.0
     sampling_backend: str | None = None
     dp_sampling: bool = False
     dp_sampling_min_bs: int | None = None
@@ -1629,6 +1632,19 @@ class ServerArgs:
             choices=attention_backend_choices,
             help="Attention backend for drafter model in speculative decoding. "
             "If not specified, uses the same backend as the main model (attention_backend).",
+        )
+        parser.add_argument(
+            "--skip-softmax-threshold",
+            type=float,
+            default=ServerArgs.skip_softmax_threshold,
+            help="BLASST skip-softmax sparsity threshold for the gluon MHA "
+            "prefill kernel (gfx950 only). A K/V block is skipped only when "
+            "every row in the query tile has exp(block_max_score - "
+            "running_max) below this threshold. 0.0 (default) is exact "
+            "dense attention; the skip rate for a given threshold must be "
+            "calibrated per model and sequence length. Ignored by "
+            "attention backends that do not declare gluon skip-softmax "
+            "support.",
         )
         parser.add_argument(
             "--sampling-backend",

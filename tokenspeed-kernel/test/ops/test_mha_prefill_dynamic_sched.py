@@ -112,13 +112,10 @@ def _run(q, k, v, seqlens: list[int], threshold: float, **kwargs):
 
 
 @pytest.mark.parametrize("n_heads,n_kv_heads", _GQA_SHAPES)
-@pytest.mark.parametrize("defer_v_load", [False, True])
-def test_dynamic_sched_covers_every_row(
-    n_heads: int, n_kv_heads: int, defer_v_load: bool
-) -> None:
+def test_dynamic_sched_covers_every_row(n_heads: int, n_kv_heads: int) -> None:
     """[1][3] Dropped or duplicated tickets leave rows wrong; dense catches it."""
     q, k, v = _qkv(n_heads, n_kv_heads, _SEQLEN)
-    out = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD, defer_v_load=defer_v_load)
+    out = _run(q, k, v, [_SEQLEN], _TINY_THRESHOLD)
     assert torch.isfinite(out).all()
     assert _rel_err(out, _dense_ref(q, k, v)) < _NO_REGRESSION_TOL
 

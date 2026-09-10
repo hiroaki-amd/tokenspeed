@@ -1244,7 +1244,6 @@ def gluon_mha_prefill_gfx950(
     return_lse: bool = False,
     softmax_scale: float | None = None,
     skip_softmax_threshold: float = 0.0,
-    defer_v_load: bool = False,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """Causal MHA prefill for gfx950, optionally with skip-softmax sparsity.
 
@@ -1257,13 +1256,11 @@ def gluon_mha_prefill_gfx950(
             length. 0.0 (default) is exact dense attention. A nonzero value
             also switches the persistent scheduler to the dynamic work
             counter, which is needed for the skipped work to actually save
-            wall-clock time.
-        defer_v_load: only load V for blocks that are not skipped, so a
-            skipped block costs no V traffic either. Applies to the causal
-            main loop only: the sliding-window kernel and the two boundary
-            tiles always load V together with K. Output is bit-identical
-            either way. Off by default, since the different load order has
-            a fixed cost that only pays off at high sparsity.
+            wall-clock time, and defers each block's V load until its skip
+            decision is known, so a skipped block costs no V traffic
+            either. Both apply to the causal main loop only: the
+            sliding-window kernel and the two boundary tiles always load V
+            together with K, and output is bit-identical either way.
 
     Returns:
         The attention output with the same shape as ``q``, or
@@ -1294,9 +1291,9 @@ def gluon_mha_prefill_gfx950(
     lse_arg = lse if lse is not None else q
 
     is_sliding = config.window_left >= 0
-    # The sliding kernel ignores DEFER_V_LOAD; normalize it off so it does not
-    # compile a second, identical variant.
-    defer_v_load = defer_v_load and not is_sliding
+    # Deferring V's load only pays off once some blocks are actually
+    # skipped; the sliding kernel ignores DEFER_V_LOAD entirely.
+    defer_v_load = enable_skip_softmax and not is_sliding
 
     # Tied to the threshold rather than a separate option: it rebalances the
     # imbalance skip-softmax creates, and costs about 2% with no sparsity to

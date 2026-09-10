@@ -22,9 +22,9 @@
 
 A K/V block is elided when every query row of the tile votes that its max
 score falls far enough below the running max. Exposed via
-``gluon_mha_prefill_gfx950(..., skip_softmax_threshold=X)``. This file runs
-the default ``defer_v_load=False`` path; the V-load skip is covered by
-``test_mha_prefill_defer_v_load.py``.
+``gluon_mha_prefill_gfx950(..., skip_softmax_threshold=X)``, which also
+enables deferred V loads internally; ``test_mha_prefill_defer_v_load.py``
+reruns these same checks to confirm they hold on that path too.
 
 Checks (bf16, causal):
   [1] NO-REGRESSION  threshold=0.0 matches dense SDPA

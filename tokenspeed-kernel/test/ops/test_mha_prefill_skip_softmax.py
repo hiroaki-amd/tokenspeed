@@ -147,6 +147,35 @@ def test_skip_softmax_degrades_gracefully(threshold: float) -> None:
     assert _rel_err(out, dense) < _DEGRADATION_BOUND
 
 
+@pytest.mark.parametrize("threshold", _THRESHOLDS)
+def test_skip_softmax_ragged_seqlen_stays_bounded(threshold: float) -> None:
+    """A seqlen not divisible by BLOCK_M leaves padding rows in the last
+    query tile. Those rows must not perturb whether the real rows in that
+    tile vote to skip a K/V block.
+    """
+    seqlen = _SEQLEN - 96  # not a multiple of BLOCK_M (128)
+    torch.manual_seed(0)
+    shape = (seqlen, _NUM_Q_HEADS, _HEAD_DIM)
+    kv_shape = (seqlen, _NUM_KV_HEADS, _HEAD_DIM)
+    q = torch.randn(shape, device="cuda", dtype=_DTYPE)
+    k = torch.randn(kv_shape, device="cuda", dtype=_DTYPE)
+    v = torch.randn(kv_shape, device="cuda", dtype=_DTYPE)
+    dense = _dense_ref(q, k, v)
+
+    cu_seqlens = torch.tensor([0, seqlen], device="cuda", dtype=torch.int32)
+    out = gluon_mha_prefill_gfx950(
+        q=q,
+        k=k,
+        v=v,
+        cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=[0, seqlen],
+        max_seqlen=seqlen,
+        skip_softmax_threshold=threshold,
+    )
+    assert torch.isfinite(out).all()
+    assert _rel_err(out, dense) < _DEGRADATION_BOUND
+
+
 def test_skip_softmax_actually_skips() -> None:
     q, k, v = _qkv()
     dense = _dense_ref(q, k, v)

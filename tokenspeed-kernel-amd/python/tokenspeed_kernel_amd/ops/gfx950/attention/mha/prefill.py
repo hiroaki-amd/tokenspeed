@@ -391,6 +391,11 @@ class AttentionProgram:
         # skipped.
         if cfg.ENABLE_SKIP_SOFTMAX:
             skip = (row_max - m_i) * cfg.SM_SCALE < self.log2_threshold
+            # Padding rows (offs_m >= seq_len) always vote to skip.
+            offs_m = self.q_start + gl.arange(
+                0, cfg.BLOCK_M, layout=gl.SliceLayout(1, cfg.pv_layout)
+            )
+            skip |= offs_m >= self.seq_len
             all_skip = gl.sum(skip.to(gl.int32), axis=0) == cfg.BLOCK_M
             # Keeps l_i and acc on the m_i scale, which is what lets the update
             # be elided. Exact for threshold <= 1; above that a voting row can

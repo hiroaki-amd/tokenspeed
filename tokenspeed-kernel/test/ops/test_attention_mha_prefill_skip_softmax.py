@@ -29,8 +29,10 @@ from __future__ import annotations
 
 import pytest
 import torch
-from tokenspeed_kernel import mha_prefill
-from tokenspeed_kernel.ops.attention import _attention_format_signature
+from tokenspeed_kernel.ops.attention.mha import (
+    _attention_format_signature,
+    mha_prefill,
+)
 from tokenspeed_kernel.selection import NoKernelFoundError, select_kernel
 
 torch.manual_seed(7)

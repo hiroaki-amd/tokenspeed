@@ -1642,9 +1642,13 @@ class ServerArgs:
             "every row in the query tile has exp(block_max_score - "
             "running_max) below this threshold. 0.0 (default) is exact "
             "dense attention; the skip rate for a given threshold must be "
-            "calibrated per model and sequence length. Ignored by "
-            "attention backends that do not declare gluon skip-softmax "
-            "support.",
+            "calibrated per model and sequence length. Only takes effect on "
+            "prefill requests with no cached prefix; KV-cache-extend paths "
+            "(including FP8/MXFP8 KV cache) never reach this kernel and "
+            "silently ignore the threshold. Raises an error at kernel "
+            "selection if the active attention backend does not declare "
+            "gluon skip-softmax support, rather than being silently "
+            "ignored.",
         )
         parser.add_argument(
             "--sampling-backend",

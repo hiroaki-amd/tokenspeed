@@ -34,6 +34,7 @@ from tokenspeed_kernel.ops.attention.mha import (
     mha_prefill,
 )
 from tokenspeed_kernel.selection import NoKernelFoundError, select_kernel
+from utils import is_cdna4
 
 torch.manual_seed(7)
 
@@ -83,6 +84,8 @@ def test_mha_prefill_zero_threshold_preserves_legacy_call(
 def test_mha_prefill_nonzero_threshold_routes_to_gfx950_gluon(
     mi350_platform, mi450_platform
 ) -> None:
+    if not is_cdna4():
+        pytest.skip("gluon_mha_prefill_gfx950 is only registered on AMD CDNA4 hosts")
     signature = _attention_format_signature(
         q=torch.empty((1, _NUM_Q_HEADS, _HEAD_DIM), dtype=_DTYPE),
         k=torch.empty((1, _NUM_KV_HEADS, _HEAD_DIM), dtype=_DTYPE),

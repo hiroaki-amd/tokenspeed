@@ -49,9 +49,6 @@ from __future__ import annotations
 import pytest
 import torch
 import torch.nn.functional as F
-from tokenspeed_kernel_amd.ops.gfx950.attention.mha.prefill import (
-    gluon_mha_prefill_gfx950,
-)
 from utils import is_cdna4
 
 if not is_cdna4():
@@ -60,6 +57,9 @@ if not is_cdna4():
         allow_module_level=True,
     )
 
+from tokenspeed_kernel_amd.ops.gfx950.attention.mha.prefill import (  # noqa: E402
+    gluon_mha_prefill_gfx950,
+)
 
 _SEQLEN = 4096
 _NUM_Q_HEADS = 8

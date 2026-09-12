@@ -34,6 +34,7 @@ SUPPORTED_TYPES = {"ut", "server_smoke", "eval", "perf"}
 SUPPORTED_TRIGGERS = {"per-commit", "manual", "nightly", "debug", "slurm"}
 WORKFLOW_STAGE_TYPES = {
     "unit-test": {"ut", "server_smoke"},
+    "kernel-benchmark": {"perf"},
     "model-test": {"eval", "perf"},
 }
 SUPPORTED_WORKFLOW_STAGES = tuple(WORKFLOW_STAGE_TYPES)
@@ -70,7 +71,15 @@ RUNNER_SM_PREFIXES = (
     (("b300", "gb300", "slurm-b300", "slurm-gb300"), "sm103"),
 )
 
-AMD_RUNNER_PREFIXES = ("amd-mi35x-", "amd-mi355-", "amd-mi350-", "amd-mi450-")
+AMD_RUNNER_PREFIXES = (
+    "amd-mi35x-",
+    "amd-mi355-",
+    "amd-mi350-",
+    "amd-mi450-",
+    "amd-mi45x-",
+)
+# A pool whose label names cpu instead of a GPU count holds no accelerator.
+CPU_ONLY_RUNNER_MARKER = "-cpu-"
 NVIDIA_ARM_RUNNER_PREFIXES = (
     "gb200",
     "gb300",
@@ -90,6 +99,10 @@ PERF_DIAGNOSTIC_RUNNERS = ("b300-4gpu",)
 
 def is_amd_runner(runner: str) -> bool:
     return runner.startswith(AMD_RUNNER_PREFIXES)
+
+
+def is_cpu_only_runner(runner: str) -> bool:
+    return CPU_ONLY_RUNNER_MARKER in runner
 
 
 def is_nvidia_arm_runner(runner: str) -> bool:
@@ -242,6 +255,14 @@ def validate_task(data: Dict[str, Any], path: Path) -> None:
             raise ValueError(
                 f"{path}: optional must be a boolean or a per-label mapping; "
                 f"got {type(optional).__name__}"
+            )
+    if "retries" in data:
+        retries = data["retries"]
+        if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+            raise ValueError(f"{path}: retries must be a non-negative integer")
+        if retries > 0 and data["type"] not in {"eval", "perf"}:
+            raise ValueError(
+                f"{path}: retries is only supported for eval and perf tasks"
             )
     if "slurm" in data:
         slurm = data["slurm"]
@@ -829,7 +850,7 @@ def setup_runner(
         )
 
     if is_amd_runner(runner):
-        if runner != "amd-mi450-sim":
+        if not is_cpu_only_runner(runner):
             # Best-effort: kill any GPU-holding processes left over by a
             # previous pod scheduled on the same node. Cluster admins flagged
             # a known race where the device plugin releases a GPU back to the
@@ -1600,7 +1621,8 @@ def poll_readiness(
             with urlopen(url, timeout=5) as response:
                 if response.status == expected_status:
                     return
-        except URLError:
+        except (URLError, ConnectionError, TimeoutError):
+            # Restarting servers can reset or stall an accepted HTTP connection.
             pass
         sleep_deadline = min(deadline, time.time() + interval_seconds)
         while time.time() < sleep_deadline:
@@ -1845,10 +1867,19 @@ def execute_task(
     server_log_path: Path | None = None
     error: str | None = None
     error_reported = False
+    max_attempts = 1 + int(task.get("retries") or 0)
 
-    try:
-        if enable_perf_diagnostics:
-            run_perf_diagnostics("before stages", runner_env, repo_root, dry_run)
+    def _stop_managed_server() -> None:
+        nonlocal server_process
+        if pgm is not None:
+            pgm.terminate_all(dry_run=dry_run)
+        else:
+            stop_server(server_process)
+        server_process = None
+
+    def _run_task_stages() -> None:
+        nonlocal server_process, server_log_path
+        nonlocal eval_score_check, eval_accept_rate, stages_run, command_results
         for stage_name, stage_payload in stages:
             stages_run.append(stage_name)
             if stage_name == "server":
@@ -1960,15 +1991,34 @@ def execute_task(
                 f"eval score {eval_score_check['score']:g} does not satisfy "
                 f"threshold {eval_score_check['threshold']}"
             )
-    except Exception as exc:
-        error = str(exc)
+
+    try:
+        if enable_perf_diagnostics:
+            run_perf_diagnostics("before stages", runner_env, repo_root, dry_run)
+        for attempt in range(1, max_attempts + 1):
+            stages_run = []
+            command_results = []
+            eval_score_check = None
+            eval_accept_rate = None
+            try:
+                _run_task_stages()
+                error = None
+                break
+            except Exception as exc:
+                error = str(exc)
+                if attempt >= max_attempts:
+                    break
+                print(
+                    f"[CI Retry] {task['name']} failed "
+                    f"(attempt {attempt}/{max_attempts}): {error}",
+                    flush=True,
+                )
+            finally:
+                _stop_managed_server()
     finally:
         if enable_perf_diagnostics:
             run_perf_diagnostics("before cleanup", runner_env, repo_root, dry_run)
-        if pgm is not None:
-            pgm.terminate_all(dry_run=dry_run)
-        else:
-            stop_server(server_process)
+        _stop_managed_server()
         if setup_mode == "ci" and not keep_runner_state:
             cleanup_runner(runner_env, repo_root, dry_run, pgm)
         if enable_perf_diagnostics:

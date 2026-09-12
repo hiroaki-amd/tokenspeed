@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-ROCM_SYSTEMS_REF=${ROCM_SYSTEMS_REF:-2ab6271797761d8d7180a1969be0c091a9eaf680}
-ROCM_SDK_VERSION=${ROCM_SDK_VERSION:-10.1.0a20260812}
+ROCM_SYSTEMS_REF=${ROCM_SYSTEMS_REF:-ac11b8acb90107071e8d2406ceb9015ce56f251a}
+ROCM_SDK_VERSION=${ROCM_SDK_VERSION:-10.1.0a20260822}
 UV_VERSION=${UV_VERSION:-0.9.26}
 SIM_ROOT=${TOKENSPEED_MI450_SIM_ROOT:-${RUNNER_TEMP:-/tmp}/tokenspeed-mi450-sim}
 SOURCE_ROOT="${SIM_ROOT}/rocm-systems"
@@ -39,7 +39,19 @@ if [ ! -d "${SOURCE_ROOT}/.git" ]; then
         emulation/rocjitsu \
         shared/machine-readable-isa/isa
 fi
-git -C "${SOURCE_ROOT}" fetch --depth 1 origin "${ROCM_SYSTEMS_REF}"
+if ! git -C "${SOURCE_ROOT}" cat-file -e "${ROCM_SYSTEMS_REF}^{commit}"; then
+    for attempt in 1 2 3; do
+        if git -C "${SOURCE_ROOT}" fetch --depth 1 origin "${ROCM_SYSTEMS_REF}"; then
+            break
+        fi
+        if [ "${attempt}" -eq 3 ]; then
+            echo "Failed to fetch rocm-systems after ${attempt} attempts" >&2
+            exit 1
+        fi
+        echo "rocm-systems fetch attempt ${attempt} failed; retrying in 10s..." >&2
+        sleep 10
+    done
+fi
 git -C "${SOURCE_ROOT}" checkout --detach "${ROCM_SYSTEMS_REF}"
 
 # HIP initialization needs the KMD simulator to remain alive for the full

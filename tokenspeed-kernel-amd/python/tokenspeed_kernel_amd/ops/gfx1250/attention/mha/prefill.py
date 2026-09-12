@@ -41,7 +41,7 @@ from tokenspeed_kernel_amd.ops.gfx1250.attention._common import (
     maximum,
 )
 
-gfx1250 = gl.amd.gfx1250
+cdna5 = gl.amd.cdna5
 
 _GFX1250_NUM_CUS = 256
 
@@ -60,6 +60,8 @@ class AttentionConfig:
     HAS_SINK: gl.constexpr
     HAS_LSE: gl.constexpr
     WINDOW_LEFT: gl.constexpr
+    TDM_WARP_HINT: gl.constexpr
+    REVERSE_Q_BLOCKS: gl.constexpr
     q_strides: InputStrides
     k_strides: InputStrides
     v_strides: InputStrides
@@ -88,6 +90,8 @@ class AttentionConfig:
         HAS_SINK,
         HAS_LSE,
         WINDOW_LEFT,
+        TDM_WARP_HINT,
+        REVERSE_Q_BLOCKS,
         q_strides,
         k_strides,
         v_strides,
@@ -133,6 +137,8 @@ class AttentionConfig:
         self.HAS_SINK = gl.constexpr(HAS_SINK)
         self.HAS_LSE = gl.constexpr(HAS_LSE)
         self.WINDOW_LEFT = gl.constexpr(WINDOW_LEFT)
+        self.TDM_WARP_HINT = gl.constexpr(TDM_WARP_HINT)
+        self.REVERSE_Q_BLOCKS = gl.constexpr(REVERSE_Q_BLOCKS)
         self.q_strides = q_strides
         self.k_strides = k_strides
         self.v_strides = v_strides
@@ -182,9 +188,9 @@ class AttentionProgram:
     q_start: gl.tensor
     q_head: gl.tensor
     kv_head: gl.tensor
-    k_desc: gl.amd.gfx1250.tdm.tensor_descriptor
+    k_desc: gl.amd.cdna5.tdm.tensor_descriptor
     k_buffer: gl.shared_memory_descriptor
-    v_desc: gl.amd.gfx1250.tdm.tensor_descriptor
+    v_desc: gl.amd.cdna5.tdm.tensor_descriptor
     v_buffer: gl.shared_memory_descriptor
 
     @gluon.constexpr_function
@@ -229,12 +235,14 @@ class AttentionProgram:
         batch = gl.program_id(0)
         q_head = gl.program_id(1)
         q_block = gl.program_id(2)
+        if cfg.REVERSE_Q_BLOCKS:
+            q_block = gl.num_programs(axis=2) - 1 - q_block
         kv_head = q_head // (cfg.N_HEADS // cfg.N_KV_HEADS)
         seq_base = gl.load(cu_seqlens_ptr + batch)
         seq_end = gl.load(cu_seqlens_ptr + batch + 1)
         seq_len = seq_end - seq_base
         q_start = q_block * cfg.BLOCK_M
-        k_desc = gfx1250.tdm.make_tensor_descriptor(
+        k_desc = cdna5.tdm.make_tensor_descriptor(
             base=k_ptr + cfg.k_strides.offsets(seq_base, kv_head, 0),
             shape=(seq_len, cfg.HEAD_DIM),
             strides=(cfg.k_strides.stride_t, cfg.k_strides.stride_d),
@@ -246,7 +254,7 @@ class AttentionProgram:
             shape=[cfg.NUM_BUFFERS] + k_desc.block_shape,
             layout=k_desc.layout,
         )
-        v_desc = gfx1250.tdm.make_tensor_descriptor(
+        v_desc = cdna5.tdm.make_tensor_descriptor(
             base=v_ptr + cfg.v_strides.offsets(seq_base, kv_head, 0),
             shape=(seq_len, cfg.HEAD_DIM),
             strides=(cfg.v_strides.stride_t, cfg.v_strides.stride_d),
@@ -288,7 +296,7 @@ class AttentionProgram:
             self.seq_base + offs_m[:, None], self.q_head, offs_d[None, :]
         )
         mask = offs_m[:, None] < self.seq_len
-        return gfx1250.buffer_load(self.q_ptr, offsets, mask=mask, other=0.0)
+        return cdna5.buffer_load(self.q_ptr, offsets, mask=mask, other=0.0)
 
     @gluon.jit
     def load_k(self, kv_start):
@@ -301,7 +309,7 @@ class AttentionProgram:
             self.seq_base + offs_n[None, :], self.kv_head, offs_d[:, None]
         )
         mask = offs_n[None, :] < self.seq_len
-        return gfx1250.buffer_load(self.k_ptr, offsets, mask=mask, other=0.0)
+        return cdna5.buffer_load(self.k_ptr, offsets, mask=mask, other=0.0)
 
     @gluon.jit
     def load_v(self, kv_start):
@@ -314,23 +322,31 @@ class AttentionProgram:
             self.seq_base + offs_n[:, None], self.kv_head, offs_d[None, :]
         )
         mask = offs_n[:, None] < self.seq_len
-        return gfx1250.buffer_load(self.v_ptr, offsets, mask=mask, other=0.0)
+        return cdna5.buffer_load(self.v_ptr, offsets, mask=mask, other=0.0)
 
     @gluon.jit
     def tdm_load_global_to_shared_k(self, kv_start, buffer_index):
-        gfx1250.tdm.async_load(
-            self.k_desc, [kv_start, 0], self.k_buffer.index(buffer_index)
+        warp_used_hint: gl.constexpr = 0x0F if self.cfg.TDM_WARP_HINT else None
+        cdna5.tdm.async_load(
+            self.k_desc,
+            [kv_start, 0],
+            self.k_buffer.index(buffer_index),
+            warp_used_hint=warp_used_hint,
         )
 
     @gluon.jit
     def tdm_load_global_to_shared_v(self, kv_start, buffer_index):
-        gfx1250.tdm.async_load(
-            self.v_desc, [kv_start, 0], self.v_buffer.index(buffer_index)
+        warp_used_hint: gl.constexpr = 0x0F if self.cfg.TDM_WARP_HINT else None
+        cdna5.tdm.async_load(
+            self.v_desc,
+            [kv_start, 0],
+            self.v_buffer.index(buffer_index),
+            warp_used_hint=warp_used_hint,
         )
 
     @gluon.jit
     def tdm_shared_load_k(self, buffer_index, wait_count):
-        gfx1250.tdm.async_wait(wait_count)
+        cdna5.tdm.async_wait(wait_count)
         return (
             self.k_buffer.index(buffer_index)
             .permute([1, 0])
@@ -339,7 +355,7 @@ class AttentionProgram:
 
     @gluon.jit
     def tdm_shared_load_v(self, buffer_index, wait_count):
-        gfx1250.tdm.async_wait(wait_count)
+        cdna5.tdm.async_wait(wait_count)
         return self.v_buffer.index(buffer_index).load(layout=self.cfg.v_layout)
 
     @gluon.jit
@@ -348,11 +364,11 @@ class AttentionProgram:
         qk = gl.zeros(
             [cfg.BLOCK_M, cfg.BLOCK_N], dtype=gl.float32, layout=cfg.qk_layout
         )
-        return gfx1250.wmma(q, k, qk)
+        return cdna5.wmma(q, k, qk)
 
     @gluon.jit
     def compute_pv(self, p, v, acc):
-        return gfx1250.wmma(p, v, acc)
+        return cdna5.wmma(p, v, acc)
 
     @gluon.jit
     def init_attention_state(self):
@@ -466,7 +482,7 @@ class AttentionProgram:
             mask = offs_m < self.seq_len
             safe_l = gl.where(l_i > 0.0, l_i, 1.0)
             lse = (m_i * cfg.SM_SCALE + gl.log2(safe_l)) * _LN2
-            gfx1250.buffer_store(lse, self.lse_ptr, offsets, mask=mask)
+            cdna5.buffer_store(lse, self.lse_ptr, offsets, mask=mask)
 
     @gluon.jit
     def store_output(self, output):
@@ -482,7 +498,7 @@ class AttentionProgram:
         ).to(gl.int32)
         mask = offs_m[:, None] < self.seq_len
         output = output.to(self.output_ptr.dtype.element_ty)
-        gfx1250.buffer_store(output, self.output_ptr, offsets, mask=mask)
+        cdna5.buffer_store(output, self.output_ptr, offsets, mask=mask)
 
 
 @gluon.jit
@@ -646,6 +662,8 @@ def _mha_prefill_gfx1250(
     HAS_SINK: gl.constexpr,
     HAS_LSE: gl.constexpr,
     WINDOW_LEFT: gl.constexpr,
+    TDM_WARP_HINT: gl.constexpr,
+    REVERSE_Q_BLOCKS: gl.constexpr,
     NUM_WARPS: gl.constexpr,
     NUM_BUFFERS: gl.constexpr,
 ):
@@ -662,6 +680,8 @@ def _mha_prefill_gfx1250(
         HAS_SINK,
         HAS_LSE,
         WINDOW_LEFT,
+        TDM_WARP_HINT,
+        REVERSE_Q_BLOCKS,
         InputStrides(Q_STRIDE_T, Q_STRIDE_H, Q_STRIDE_D),
         InputStrides(K_STRIDE_T, K_STRIDE_H, K_STRIDE_D),
         InputStrides(V_STRIDE_T, V_STRIDE_H, V_STRIDE_D),
@@ -702,6 +722,50 @@ class LaunchConfig(NamedTuple):
     max_seqlen: int
     window_left: int
     grid: tuple[int, ...]
+
+
+def _select_llvm_fn_attrs(*, head_dim: int, max_seqlen: int, window_left: int) -> str:
+    """Use max-ILP where it reduces scheduler overhead without regressions.
+
+    It wins for full D=128 attention once fixed scheduling overhead is amortized.
+    D=64, very short sequences, and medium/large sliding windows regress.
+    """
+    use_max_ilp = head_dim == 128 and max_seqlen >= 512 and window_left < 0
+    return "amdgpu-sched-strategy=max-ilp" if use_max_ilp else ""
+
+
+def _select_tdm_warp_hint(
+    *,
+    block_m: int,
+    block_n: int,
+    num_warps: int,
+    window_left: int,
+    workgroups: int,
+) -> bool:
+    """Use four TDM producer warps for the fully occupied eight-warp tile.
+
+    Without the hint all eight warps participate in each descriptor load.
+    Sliding-window and underfilled launches do not amortize this specialization
+    and retain the original all-warp behavior.
+    """
+    return (
+        block_m == 256
+        and block_n == 64
+        and num_warps == 8
+        and window_left < 0
+        and workgroups >= _GFX1250_NUM_CUS
+    )
+
+
+def _select_reverse_q_blocks(
+    *,
+    block_m: int,
+    max_seqlen: int,
+    window_left: int,
+    workgroups: int,
+) -> bool:
+    """Schedule long causal workgroups first to minimize the dispatch tail."""
+    return window_left < 0 and workgroups >= _GFX1250_NUM_CUS and max_seqlen > block_m
 
 
 def _select_m_tile(
@@ -776,6 +840,15 @@ def triton_cdiv(x: int, y: int) -> int:
     return (x + y - 1) // y
 
 
+def _count_live_workgroups(
+    *, cu_seqlens_cpu: list[int], n_heads: int, block_m: int
+) -> int:
+    return n_heads * sum(
+        triton_cdiv(seq_end - seq_start, block_m)
+        for seq_start, seq_end in zip(cu_seqlens_cpu, cu_seqlens_cpu[1:])
+    )
+
+
 def gluon_mha_prefill_gfx1250(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -823,6 +896,23 @@ def gluon_mha_prefill_gfx1250(
     )
     sink_arg = sinks if sinks is not None else q
     lse_arg = lse if lse is not None else q
+    tdm_warp_hint = _select_tdm_warp_hint(
+        block_m=config.block_m,
+        block_n=config.block_n,
+        num_warps=config.num_warps,
+        window_left=config.window_left,
+        workgroups=math.prod(config.grid),
+    )
+    reverse_q_blocks = _select_reverse_q_blocks(
+        block_m=config.block_m,
+        max_seqlen=config.max_seqlen,
+        window_left=config.window_left,
+        workgroups=_count_live_workgroups(
+            cu_seqlens_cpu=cu_seqlens_cpu,
+            n_heads=config.n_heads,
+            block_m=config.block_m,
+        ),
+    )
 
     _mha_prefill_gfx1250[config.grid](
         q,
@@ -851,10 +941,17 @@ def gluon_mha_prefill_gfx1250(
         sinks is not None,
         return_lse,
         config.window_left,
+        tdm_warp_hint,
+        reverse_q_blocks,
         config.num_warps,
         config.num_buffers,
         num_warps=config.num_warps,
         waves_per_eu=config.waves_per_eu,
+        llvm_fn_attrs=_select_llvm_fn_attrs(
+            head_dim=config.head_dim,
+            max_seqlen=config.max_seqlen,
+            window_left=config.window_left,
+        ),
     )
     if return_lse:
         return output, lse

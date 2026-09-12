@@ -152,6 +152,43 @@ def prepare_all_reduce_lane(
     return backend.prepare_all_reduce_lane(group, hidden_dim)
 
 
+def prepare_all_reduce_buffers(
+    group: Group,
+    *,
+    staged_max_numel: int,
+    producer_direct_max_numel: int,
+    attnres_max_numel: int,
+    attnres_max_rows: int,
+    dtype: torch.dtype,
+    backend: CommBackend | None,
+) -> bool:
+    """Ask the active backend to allocate all-reduce buffers before cache planning.
+
+    Args:
+        group: Global ranks participating in the reductions.
+        staged_max_numel: Maximum ordinary all-reduce payload in elements.
+        producer_direct_max_numel: Maximum producer-direct payload in elements.
+        attnres_max_numel: Maximum fused AttnRes payload in elements.
+        attnres_max_rows: Maximum fused AttnRes payload in rows.
+        dtype: Element type shared by the prepared paths.
+        backend: Backend to prepare, or ``None`` to use the global backend.
+
+    Returns:
+        Whether the active backend prepared the requested buffers.
+    """
+
+    if backend is None:
+        backend = get_global_backend()
+    return backend.prepare_all_reduce_buffers(
+        group,
+        staged_max_numel=staged_max_numel,
+        producer_direct_max_numel=producer_direct_max_numel,
+        attnres_max_numel=attnres_max_numel,
+        attnres_max_rows=attnres_max_rows,
+        dtype=dtype,
+    )
+
+
 def prepare_all_reduce_fusion(
     group: Group,
     hidden_dim: int,
@@ -193,6 +230,28 @@ def all_reduce_latent_norm(
         max_token_num=max_token_num,
         trigger_completion_at_end=True,
     )
+
+
+def can_acquire_all_reduce_outputs(
+    shapes: tuple[tuple[int, ...], ...],
+    like: torch.Tensor,
+    group: Group,
+    backend: CommBackend | None = None,
+    op: torch.distributed.ReduceOp = torch.distributed.ReduceOp.SUM,
+) -> bool:
+    """Whether ``acquire_all_reduce_outputs`` returns producer-direct memory.
+
+    ``acquire_all_reduce_outputs`` always returns writable buffers, falling
+    back to ordinary allocations the collective has to stage. Ask here when the
+    buffers are only worth taking if the reduction consumes them in place.
+
+    This is COLLECTIVE in the same sense the acquire is: every rank of
+    ``group`` must call it with identical arguments, or the group will disagree
+    on which collective the tail runs.
+    """
+    if backend is None:
+        backend = get_global_backend()
+    return backend.can_acquire_all_reduce_outputs(shapes, like, group, op=op)
 
 
 def acquire_all_reduce_outputs(

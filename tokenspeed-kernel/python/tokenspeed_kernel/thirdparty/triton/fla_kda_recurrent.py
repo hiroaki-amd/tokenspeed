@@ -22,8 +22,8 @@ from __future__ import annotations
 import os
 
 import torch
-import triton
-import triton.language as tl
+from tokenspeed_kernel._triton import tl, triton
+from tokenspeed_kernel.platform import Platform
 
 
 @triton.jit
@@ -395,6 +395,30 @@ def fused_recurrent_kda_mtp_fwd_kernel(
         p_beta += stride_beta_tok
 
 
+def _kda_mtp_launch_config(
+    batch_size: int,
+    draft_tokens: int,
+    num_heads: int,
+    num_value_heads: int,
+    key_dim: int,
+    value_dim: int,
+    recurrent_layout: str,
+    is_amd: bool,
+) -> tuple[int, int]:
+    """Route the AMD-measured GLM-5.3-Flash schedule or the direct default."""
+    if is_amd and (
+        batch_size,
+        draft_tokens,
+        num_heads,
+        num_value_heads,
+        key_dim,
+        value_dim,
+        recurrent_layout,
+    ) == (16, 4, 16, 16, 128, 128, "v_major"):
+        return 2, 3
+    return 4, 2
+
+
 def fused_recurrent_kda_mtp(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -444,6 +468,16 @@ def fused_recurrent_kda_mtp(
     for t, d in ((q, K), (k, K), (v, V), (g, K)):
         assert t.stride(-1) == 1 and t.stride(-2) == d, "inner dims must be dense"
     out = torch.empty(B, T, HV, V, dtype=v.dtype, device=v.device)
+    num_warps, num_stages = _kda_mtp_launch_config(
+        B,
+        T,
+        H,
+        HV,
+        K,
+        V,
+        recurrent_layout,
+        Platform.get().is_amd,
+    )
     grid = (triton.cdiv(V, 32) * B * HV,)
     fused_recurrent_kda_mtp_fwd_kernel[grid](
         q=q,
@@ -481,8 +515,8 @@ def fused_recurrent_kda_mtp(
         APPLY_BETA_SIGMOID=use_beta_sigmoid_in_kernel,
         HAS_DT_BIAS=dt_bias is not None,
         USE_LOWER_BOUND=lower_bound is not None,
-        num_warps=4,
-        num_stages=2,
+        num_warps=num_warps,
+        num_stages=num_stages,
     )
     return out
 
@@ -733,6 +767,7 @@ def fused_recurrent_kda_verify_megafuse_fwd_kernel(
     HAS_PRECOMPUTED_CONV: tl.constexpr,
     STORE_STATES: tl.constexpr,
     USE_LOWER_BOUND: tl.constexpr,
+    ENABLE_PDL: tl.constexpr,
 ):
     """Run target verify, optionally storing each position's rollback state."""
     pid = tl.program_id(0)
@@ -808,6 +843,13 @@ def fused_recurrent_kda_verify_megafuse_fwd_kernel(
         b_bias = tl.load(dt_bias + i_hv * K + o_k, mask=mask_k, other=0.0).to(
             tl.float32
         )
+
+    if ENABLE_PDL:
+        # The state and weights above do not depend on the split producers.
+        # Fence before reading conv_qkv/g_raw, then release gated RMSNorm so
+        # it can prefetch its independent gate and weight during recurrence.
+        tl.extra.cuda.gdc_wait()
+        tl.extra.cuda.gdc_launch_dependents()
 
     for i_t in range(T):
         tok = bos + i_t
@@ -1103,6 +1145,7 @@ def fused_recurrent_kda_verify_megafuse(
     conv_qkv: torch.Tensor | None = None,
     num_warps: int | None = None,
     num_stages: int | None = None,
+    enable_pdl: bool,
 ) -> torch.Tensor:
     """Run target-verify recurrence with inline or precomputed producers.
 
@@ -1123,6 +1166,8 @@ def fused_recurrent_kda_verify_megafuse(
             128-wide heads and avoids wide V-major tiles when storing tapes.
         num_warps/num_stages: Optional launch overrides. Defaults route to
             1/3 for the fully split producer path and 4/2 otherwise.
+        enable_pdl: Whether this grid releases a programmatic-launch dependent
+            after its producer-independent prologue.
 
     Returns:
         o: ``[N*T, HV, V]`` attention output in ``qkv_raw``'s dtype.
@@ -1173,6 +1218,7 @@ def fused_recurrent_kda_verify_megafuse(
         raise ValueError(f"bv={bv} must be a positive power of two")
     BV = bv
     grid = (triton.cdiv(V, BV) * N * HV,)
+    pdl_kwargs = {"launch_pdl": True} if enable_pdl else {}
     fused_recurrent_kda_verify_megafuse_fwd_kernel[grid](
         qkv_raw=qkv_raw,
         conv_w=conv_w,
@@ -1214,8 +1260,10 @@ def fused_recurrent_kda_verify_megafuse(
         HAS_PRECOMPUTED_GATE=g_raw is not None,
         HAS_PRECOMPUTED_CONV=conv_qkv is not None,
         STORE_STATES=store_states,
+        ENABLE_PDL=enable_pdl,
         num_warps=num_warps,
         num_stages=num_stages,
+        **pdl_kwargs,
     )
     return out
 
@@ -2191,6 +2239,7 @@ def batched_kda_gate_precompute_dot_kernel(
 @triton.jit
 def batched_recurrent_kda_replay_commit_kernel(
     addresses,
+    group_indices,
     read_indices,
     write_indices,
     accepted_length,
@@ -2202,8 +2251,6 @@ def batched_recurrent_kda_replay_commit_kernel(
     STRIDE_STATE: tl.constexpr,
     STRIDE_GATE: tl.constexpr,
     CONV_WIDTH: tl.constexpr,
-    LAYERS_PER_GROUP: tl.constexpr,
-    NUM_GROUPS: tl.constexpr,
     HV: tl.constexpr,
     K: tl.constexpr,
     BK: tl.constexpr,
@@ -2220,7 +2267,7 @@ def batched_recurrent_kda_replay_commit_kernel(
     beta = tl.load(addresses + ab + 5).to(tl.pointer_type(tl.bfloat16))
     state = tl.load(addresses + ab + 8).to(tl.pointer_type(tl.float32))
     gate_scratch = tl.load(addresses + ab + 9).to(tl.pointer_type(tl.float32))
-    group = i_l // LAYERS_PER_GROUP
+    group = tl.load(group_indices + i_l).to(tl.int64)
 
     read_page = tl.load(read_indices + group * B + i_n).to(tl.int64)
     write_page = tl.load(write_indices + group * B + i_n).to(tl.int64)
@@ -2345,6 +2392,7 @@ def batched_recurrent_kda_replay_commit_kernel(
 @triton.jit
 def batched_kda_commit_conv_window_kernel(
     addresses,
+    group_indices,
     read_indices,
     write_indices,
     accepted_length,
@@ -2353,7 +2401,6 @@ def batched_kda_commit_conv_window_kernel(
     STRIDE_QKV: tl.constexpr,
     STRIDE_CONV: tl.constexpr,
     CONV_DIM: tl.constexpr,
-    LAYERS_PER_GROUP: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
     """Publish convolution windows after every recurrent program has read."""
@@ -2361,7 +2408,7 @@ def batched_kda_commit_conv_window_kernel(
     ab = i_l * 10
     qkv = tl.load(addresses + ab).to(tl.pointer_type(tl.bfloat16))
     conv_pool = tl.load(addresses + ab + 2).to(tl.pointer_type(tl.bfloat16))
-    group = i_l // LAYERS_PER_GROUP
+    group = tl.load(group_indices + i_l).to(tl.int64)
     read_page = tl.load(read_indices + group * B + i_n).to(tl.int64)
     write_page = tl.load(write_indices + group * B + i_n).to(tl.int64)
     steps = tl.load(accepted_length + i_n).to(tl.int32)
@@ -2387,6 +2434,7 @@ def batched_kda_commit_conv_window_kernel(
 
 def batched_recurrent_kda_replay_commit(
     addresses: torch.Tensor,
+    group_indices: torch.Tensor,
     read_indices: torch.Tensor,
     write_indices: torch.Tensor,
     accepted_length: torch.Tensor,
@@ -2402,13 +2450,22 @@ def batched_recurrent_kda_replay_commit(
     state_stride: int,
     gate_stride: int,
     conv_width: int,
-    layers_per_group: int,
     lower_bound: float,
 ) -> None:
-    """Commit all descriptor-table KDA layers with constant launch count."""
+    """Commit descriptor-table KDA layers using an explicit cache-group map."""
     if head_dim != 128:
         raise ValueError("batched KDA replay currently requires head_dim=128")
     layers = addresses.shape[0]
+    if group_indices.shape != (layers,):
+        raise ValueError(
+            f"group_indices must have shape ({layers},), got {group_indices.shape}"
+        )
+    if group_indices.dtype != torch.int32:
+        raise TypeError("group_indices must use torch.int32")
+    if group_indices.device != addresses.device:
+        raise ValueError("group_indices and addresses must be on the same device")
+    if not group_indices.is_contiguous():
+        raise ValueError("group_indices must be contiguous")
     batch = accepted_length.numel()
     rows = batch * draft_token_num
     # tl.dot needs 16 rows; tensor cores run this gate 5x faster than tl.sum.
@@ -2443,6 +2500,7 @@ def batched_recurrent_kda_replay_commit(
     )
     batched_recurrent_kda_replay_commit_kernel[(layers, batch, num_heads)](
         addresses,
+        group_indices,
         read_indices,
         write_indices,
         accepted_length,
@@ -2454,8 +2512,6 @@ def batched_recurrent_kda_replay_commit(
         STRIDE_STATE=state_stride,
         STRIDE_GATE=gate_stride,
         CONV_WIDTH=conv_width,
-        LAYERS_PER_GROUP=layers_per_group,
-        NUM_GROUPS=read_indices.shape[0],
         HV=num_heads,
         K=head_dim,
         BK=triton.next_power_of_2(head_dim),
@@ -2474,6 +2530,7 @@ def batched_recurrent_kda_replay_commit(
         (layers, batch, triton.cdiv(conv_dim, conv_block))
     ](
         addresses,
+        group_indices,
         read_indices,
         write_indices,
         accepted_length,
@@ -2482,7 +2539,6 @@ def batched_recurrent_kda_replay_commit(
         STRIDE_QKV=qkv_stride,
         STRIDE_CONV=conv_stride,
         CONV_DIM=conv_dim,
-        LAYERS_PER_GROUP=layers_per_group,
         BLOCK=conv_block,
         num_warps=1,
     )
